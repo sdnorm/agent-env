@@ -115,6 +115,7 @@ watcher, qmd — is stack-agnostic. The port scan range (3000–3100) lives in
 indexes `~/.agents-mail` as the `agent-mail` collection so both agents can
 search past handoffs (`qmd search` / `qmd query`). `install.sh` registers the
 collection; `wt done` re-indexes in the background; `wt` runs a weekly
-background `npm update -g @tobilu/qmd` (stamp file in `~/.agents-mail`).
+background update of qmd (`npm update -g`) and pi (`pi update`), tracked by a
+stamp file in `~/.agents-mail`.
 First semantic query downloads ~2GB of local models; BM25 `qmd search` works
 without them.

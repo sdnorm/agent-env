@@ -99,11 +99,9 @@ ensure_watcher() {
   echo $! > "$pid_file"
 }
 
-# Weekly self-update check for qmd, piggybacked on normal wt usage.
-maybe_update_qmd() {
-  command -v qmd >/dev/null || return 0
-  command -v npm >/dev/null || return 0
-  local stamp="$MAIL_ROOT/.qmd-update-stamp"
+# Weekly self-update check for agent tooling, piggybacked on normal wt usage.
+maybe_update_tools() {
+  local stamp="$MAIL_ROOT/.tools-update-stamp"
   if [ -f "$stamp" ]; then
     local mtime
     mtime="$(stat -f %m "$stamp" 2>/dev/null || stat -c %Y "$stamp" 2>/dev/null)" || return 0
@@ -111,8 +109,16 @@ maybe_update_qmd() {
   fi
   mkdir -p "$MAIL_ROOT"
   touch "$stamp"
-  (npm update -g @tobilu/qmd >/dev/null 2>&1 &)
-  echo "qmd: weekly update check running in background"
+  local updating=""
+  if command -v qmd >/dev/null && command -v npm >/dev/null; then
+    (npm update -g @tobilu/qmd >/dev/null 2>&1 &)
+    updating="qmd"
+  fi
+  if command -v pi >/dev/null; then
+    (pi update >/dev/null 2>&1 </dev/null &)
+    updating="${updating:+$updating, }pi"
+  fi
+  [ -n "$updating" ] && echo "weekly update check running in background: $updating"
 }
 
 stop_watcher() {
@@ -178,7 +184,7 @@ wt_start() {
   local session; session="$(session_name "$branch")"
   local wt_path="$worktrees_root/$branch"
 
-  maybe_update_qmd
+  maybe_update_tools
 
   # Already running? Make sure the doorbell is alive, then go there.
   if tmux has-session -t "=$session" 2>/dev/null; then
