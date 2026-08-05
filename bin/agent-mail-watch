@@ -1,0 +1,45 @@
+#!/usr/bin/env bash
+#
+# agent-mail-watch — the doorbell. Watches a session's inboxes and nudges the
+# matching tmux pane when a new message arrives. Started by wt, exits on its
+# own when the tmux session dies.
+#
+# Usage: agent-mail-watch <tmux-session> <mailbox-dir>
+#
+# Expects <mailbox-dir>/panes to contain lines like:
+#   claude=%1
+#   pi=%3
+#
+set -uo pipefail
+
+[ $# -eq 2 ] || { echo "usage: agent-mail-watch <session> <mailbox-dir>" >&2; exit 1; }
+session="$1"
+mailbox="$2"
+notified="$mailbox/.notified"
+touch "$notified"
+
+pane_for() {
+  sed -n "s/^$1=//p" "$mailbox/panes" | head -1
+}
+
+nudge() {
+  local agent="$1" file="$2" pane
+  pane="$(pane_for "$agent")"
+  [ -n "$pane" ] || return 0
+  # -l sends the text literally; Enter goes separately so TUIs treat it as submit.
+  tmux send-keys -t "$pane" -l "[agent-mail] New message for you: $file — read it with 'agent-mail read $file', act on it, reply with 'agent-mail send', and mark it handled with 'agent-mail done $file'." 2>/dev/null
+  sleep 0.3
+  tmux send-keys -t "$pane" Enter 2>/dev/null
+}
+
+while tmux has-session -t "=$session" 2>/dev/null; do
+  for agent in claude pi; do
+    for f in "$mailbox/inbox-$agent"/*.md; do
+      [ -f "$f" ] || continue
+      grep -qxF "$f" "$notified" 2>/dev/null && continue
+      nudge "$agent" "$f"
+      echo "$f" >> "$notified"
+    done
+  done
+  sleep 2
+done

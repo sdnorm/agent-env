@@ -1,0 +1,106 @@
+#!/usr/bin/env bash
+#
+# agent-mail — file-based mailbox for coordinating agents (claude + pi)
+#
+# Usage:
+#   agent-mail send <claude|pi> <subject> [body ...]   Send a message (body also read from stdin)
+#   agent-mail inbox <claude|pi>                       List unhandled messages
+#   agent-mail read <file>                             Print a message
+#   agent-mail done <file>                             Mark a message handled (moves to done/)
+#
+# The mailbox is the .agents directory of the current worktree (a symlink into
+# ~/.agents-mail/<session>, created by wt). Override with AGENT_MAIL_DIR.
+#
+set -euo pipefail
+
+die() { echo "agent-mail: $*" >&2; exit 1; }
+
+find_mailbox() {
+  if [ -n "${AGENT_MAIL_DIR:-}" ]; then
+    echo "$AGENT_MAIL_DIR"
+    return
+  fi
+  local dir="$PWD"
+  while [ "$dir" != "/" ]; do
+    if [ -e "$dir/.agents" ]; then
+      echo "$dir/.agents"
+      return
+    fi
+    dir="$(dirname "$dir")"
+  done
+  die "no .agents mailbox found (run inside a wt worktree, or set AGENT_MAIL_DIR)"
+}
+
+other_agent() {
+  case "$1" in
+    claude) echo "pi" ;;
+    pi)     echo "claude" ;;
+    *)      die "unknown agent '$1' (expected claude or pi)" ;;
+  esac
+}
+
+cmd="${1:-}"
+case "$cmd" in
+  send)
+    [ $# -ge 3 ] || die "usage: agent-mail send <claude|pi> <subject> [body ...]"
+    to="$2"; subject="$3"; shift 3
+    from="${AGENT_MAIL_FROM:-$(other_agent "$to")}"
+    mailbox="$(find_mailbox)"
+    inbox="$mailbox/inbox-$to"
+    [ -d "$inbox" ] || die "no inbox at $inbox"
+
+    if [ $# -gt 0 ]; then
+      body="$*"
+    elif [ ! -t 0 ]; then
+      body="$(cat)"
+    else
+      body=""
+    fi
+
+    slug="$(echo "$subject" | tr '[:upper:]' '[:lower:]' | tr -cs 'a-z0-9' '-' | cut -c1-40 | sed 's/^-//;s/-$//')"
+    file="$inbox/$(date +%Y%m%d-%H%M%S)-${slug:-message}.md"
+    {
+      echo "---"
+      echo "from: $from"
+      echo "to: $to"
+      echo "subject: $subject"
+      echo "date: $(date '+%Y-%m-%d %H:%M:%S')"
+      echo "---"
+      echo
+      echo "$body"
+    } > "$file"
+    echo "$file"
+    ;;
+
+  inbox)
+    [ $# -ge 2 ] || die "usage: agent-mail inbox <claude|pi>"
+    mailbox="$(find_mailbox)"
+    inbox="$mailbox/inbox-$2"
+    [ -d "$inbox" ] || die "no inbox at $inbox"
+    found=""
+    for f in "$inbox"/*.md; do
+      [ -f "$f" ] || continue
+      found=1
+      subject="$(sed -n 's/^subject: //p' "$f" | head -1)"
+      echo "$f — $subject"
+    done
+    [ -n "$found" ] || echo "inbox empty"
+    ;;
+
+  read)
+    [ $# -ge 2 ] && [ -f "$2" ] || die "usage: agent-mail read <file>"
+    cat "$2"
+    ;;
+
+  done)
+    [ $# -ge 2 ] && [ -f "$2" ] || die "usage: agent-mail done <file>"
+    dest="$(dirname "$2")/done"
+    mkdir -p "$dest"
+    mv "$2" "$dest/"
+    echo "moved to $dest/$(basename "$2")"
+    ;;
+
+  *)
+    die "usage: agent-mail send|inbox|read|done (see script header)"
+    ;;
+esac

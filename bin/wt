@@ -1,0 +1,247 @@
+#!/usr/bin/env bash
+#
+# wt — git worktree + tmux session manager for Rails apps, with agent-mail
+#
+# Usage:
+#   wt <branch>                Create/attach a worktree session for <branch>
+#   wt done [branch] [--force] Kill the session and remove the worktree
+#
+# Layout:
+#   ┌──────────────┬──────────────┐
+#   │    claude    │  empty shell │
+#   ├──────────────┼──────────────┤
+#   │      pi      │   bin/dev    │
+#   └──────────────┴──────────────┘
+#
+# Overrides (env): WT_CLAUDE_CMD, WT_PI_CMD, WT_MAIL_ROOT
+#
+set -euo pipefail
+
+die() { echo "wt: $*" >&2; exit 1; }
+
+command -v tmux >/dev/null || die "tmux is not installed"
+command -v git >/dev/null || die "git is not installed"
+
+CLAUDE_CMD="${WT_CLAUDE_CMD:-claude}"
+PI_CMD="${WT_PI_CMD:-ollama launch pi --model kimi-k3:cloud}"
+MAIL_ROOT="${WT_MAIL_ROOT:-$HOME/.agents-mail}"
+
+# --- Repo context -----------------------------------------------------------
+
+# Works from the main checkout or any worktree of it.
+git rev-parse --git-dir >/dev/null 2>&1 || die "run this from inside a git repo"
+
+common_dir="$(git rev-parse --path-format=absolute --git-common-dir)"
+main_checkout="$(dirname "$common_dir")"
+repo_name="$(basename "$main_checkout")"
+worktrees_root="$(dirname "$main_checkout")/${repo_name}-worktrees"
+
+session_name() {
+  # tmux session names may not contain '.' or ':'
+  echo "${repo_name}--$1" | tr './:' '---'
+}
+
+default_branch() {
+  local ref
+  if ref="$(git symbolic-ref --quiet refs/remotes/origin/HEAD 2>/dev/null)"; then
+    echo "${ref#refs/remotes/origin/}"
+    return
+  fi
+  for b in main master; do
+    git show-ref --verify --quiet "refs/remotes/origin/$b" && { echo "$b"; return; }
+    git show-ref --verify --quiet "refs/heads/$b" && { echo "$b"; return; }
+  done
+  die "could not determine the default branch"
+}
+
+port_in_use() {
+  if command -v lsof >/dev/null; then
+    lsof -nP -iTCP:"$1" -sTCP:LISTEN >/dev/null 2>&1
+  elif command -v ss >/dev/null; then
+    ss -ltn "sport = :$1" 2>/dev/null | grep -q LISTEN
+  else
+    nc -z 127.0.0.1 "$1" >/dev/null 2>&1
+  fi
+}
+
+find_free_port() {
+  local port=3000
+  while port_in_use "$port"; do
+    port=$((port + 1))
+    [ "$port" -gt 3100 ] && die "no free port found between 3000 and 3100"
+  done
+  echo "$port"
+}
+
+# --- Mailbox / watcher ------------------------------------------------------
+
+setup_mailbox() {
+  local session="$1" wt_path="$2"
+  local mail_dir="$MAIL_ROOT/$session"
+  mkdir -p "$mail_dir/inbox-claude/done" "$mail_dir/inbox-pi/done"
+  ln -sfn "$mail_dir" "$wt_path/.agents"
+  # Hide the symlink from git status across all worktrees of this repo.
+  local exclude="$common_dir/info/exclude"
+  mkdir -p "$(dirname "$exclude")"
+  grep -qxF ".agents" "$exclude" 2>/dev/null || echo ".agents" >> "$exclude"
+  echo "$mail_dir"
+}
+
+ensure_watcher() {
+  local session="$1" mail_dir="$2"
+  local pid_file="$mail_dir/watch.pid"
+  if [ -f "$pid_file" ] && kill -0 "$(cat "$pid_file")" 2>/dev/null; then
+    return
+  fi
+  nohup agent-mail-watch "$session" "$mail_dir" >/dev/null 2>&1 &
+  echo $! > "$pid_file"
+}
+
+stop_watcher() {
+  local pid_file="$MAIL_ROOT/$1/watch.pid"
+  if [ -f "$pid_file" ]; then
+    kill "$(cat "$pid_file")" 2>/dev/null || true
+    rm -f "$pid_file"
+  fi
+}
+
+# --- wt done ----------------------------------------------------------------
+
+wt_done() {
+  local branch="" force=""
+  for arg in "$@"; do
+    case "$arg" in
+      --force) force="--force" ;;
+      *) branch="$arg" ;;
+    esac
+  done
+
+  if [ -z "$branch" ]; then
+    # Infer from the current worktree, but never tear down the main checkout.
+    local top
+    top="$(git rev-parse --show-toplevel)"
+    [ "$top" = "$main_checkout" ] && die "usage: wt done <branch> (or run from inside a worktree)"
+    branch="$(git rev-parse --abbrev-ref HEAD)"
+  fi
+
+  local wt_path="$worktrees_root/$branch"
+  local session; session="$(session_name "$branch")"
+
+  cd "$main_checkout"
+
+  if [ -d "$wt_path" ]; then
+    if ! git worktree remove ${force:+"$force"} "$wt_path" 2>/dev/null; then
+      die "worktree has uncommitted changes — commit them or rerun with: wt done $branch --force"
+    fi
+    git worktree prune
+    echo "removed worktree $wt_path (branch '$branch' kept)"
+  else
+    echo "no worktree at $wt_path, skipping"
+  fi
+
+  stop_watcher "$session"
+
+  if tmux has-session -t "=$session" 2>/dev/null; then
+    echo "killing tmux session $session"
+    tmux kill-session -t "=$session"
+  fi
+  echo "mail history kept at $MAIL_ROOT/$session"
+}
+
+# --- wt <branch> ------------------------------------------------------------
+
+wt_start() {
+  local branch="$1"
+  local session; session="$(session_name "$branch")"
+  local wt_path="$worktrees_root/$branch"
+
+  # Already running? Make sure the doorbell is alive, then go there.
+  if tmux has-session -t "=$session" 2>/dev/null; then
+    if [ -f "$MAIL_ROOT/$session/panes" ]; then
+      ensure_watcher "$session" "$MAIL_ROOT/$session"
+    fi
+    exec_attach "$session"
+  fi
+
+  local fresh=""
+  if [ ! -d "$wt_path" ]; then
+    fresh=1
+    mkdir -p "$worktrees_root"
+    if git show-ref --verify --quiet "refs/heads/$branch"; then
+      echo "branch '$branch' exists locally — creating worktree"
+      git worktree add "$wt_path" "$branch"
+    elif git show-ref --verify --quiet "refs/remotes/origin/$branch"; then
+      echo "branch '$branch' exists on origin — creating tracking worktree"
+      git worktree add "$wt_path" -b "$branch" "origin/$branch"
+    else
+      local base; base="$(default_branch)"
+      echo "creating branch '$branch' off '$base'"
+      git fetch origin "$base" 2>/dev/null || true
+      local start="origin/$base"
+      git show-ref --verify --quiet "refs/remotes/$start" || start="$base"
+      git worktree add "$wt_path" -b "$branch" "$start"
+    fi
+
+    # Untracked files worktrees don't inherit: env files and credential keys.
+    for f in "$main_checkout"/.env "$main_checkout"/.env.*; do
+      [ -f "$f" ] && cp "$f" "$wt_path/"
+    done
+    if [ -f "$main_checkout/config/master.key" ]; then
+      mkdir -p "$wt_path/config"
+      cp "$main_checkout/config/master.key" "$wt_path/config/"
+    fi
+    for f in "$main_checkout"/config/credentials/*.key; do
+      if [ -f "$f" ]; then
+        mkdir -p "$wt_path/config/credentials"
+        cp "$f" "$wt_path/config/credentials/"
+      fi
+    done
+  fi
+
+  local mail_dir; mail_dir="$(setup_mailbox "$session" "$wt_path")"
+  local port; port="$(find_free_port)"
+
+  # Build the layout. Panes are addressed by immutable IDs, not indexes.
+  local cols=200 lines=50
+  if [ -t 0 ]; then cols="$(tput cols)"; lines="$(tput lines)"; fi
+  local p_claude p_shell p_dev p_pi
+  p_claude="$(tmux new-session -d -P -F '#{pane_id}' -s "$session" -c "$wt_path" -x "$cols" -y "$lines")"
+  p_shell="$(tmux split-window -h -l '40%' -P -F '#{pane_id}' -t "$p_claude" -c "$wt_path")"
+  p_dev="$(tmux split-window -v -l '50%' -P -F '#{pane_id}' -t "$p_shell" -c "$wt_path")"
+  p_pi="$(tmux split-window -v -l '40%' -P -F '#{pane_id}' -t "$p_claude" -c "$wt_path")"
+
+  printf 'claude=%s\npi=%s\n' "$p_claude" "$p_pi" > "$mail_dir/panes"
+  ensure_watcher "$session" "$mail_dir"
+
+  local dev_cmd="echo '── dev server on http://localhost:$port ──'; "
+  [ -n "$fresh" ] && dev_cmd+="bin/setup && "
+  dev_cmd+="PORT=$port bin/dev"
+  tmux send-keys -t "$p_dev" "$dev_cmd" Enter
+  tmux send-keys -t "$p_claude" "$CLAUDE_CMD" Enter
+  tmux send-keys -t "$p_pi" "$PI_CMD" Enter
+  tmux select-pane -t "$p_claude"
+
+  exec_attach "$session"
+}
+
+exec_attach() {
+  local session="$1"
+  if [ ! -t 0 ]; then
+    echo "session ready: tmux attach -t $session"
+    exit 0
+  fi
+  if [ -n "${TMUX:-}" ]; then
+    exec tmux switch-client -t "=$session"
+  else
+    exec tmux attach-session -t "=$session"
+  fi
+}
+
+# --- Dispatch ---------------------------------------------------------------
+
+[ $# -ge 1 ] || die "usage: wt <branch> | wt done [branch] [--force]"
+
+case "$1" in
+  done) shift; wt_done "$@" ;;
+  *)    wt_start "$1" ;;
+esac
