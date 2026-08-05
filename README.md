@@ -17,7 +17,7 @@ Agent CLIs (install.sh warns; needed before the panes are useful):
 | Tool | Purpose | Install | Auth (one-time) |
 |------|---------|---------|-----------------|
 | claude | top-left pane | `npm install -g @anthropic-ai/claude-code` | `claude` (login flow) |
-| pi | bottom-left pane | `bun install -g @earendil-works/pi-coding-agent` | uses ollama |
+| [pi](https://pi.dev/) | bottom-left pane | `bun add -g --ignore-scripts @earendil-works/pi-coding-agent` | uses ollama (see below) |
 | ollama | runs pi's Kimi model | [ollama.com/download](https://ollama.com/download) or `curl -fsSL https://ollama.com/install.sh \| sh` | `ollama signin` (cloud models) |
 | qmd | mail-history search | `npm install -g @tobilu/qmd` (npm, **not bun** — see below) | none |
 
@@ -28,6 +28,22 @@ Runtimes and support tools:
 - **lsof** or **ss** — free-port detection; preinstalled on macOS, `apt install lsof` or `iproute2` on Linux
 - **gh** (optional) — only for cloning this repo over HTTPS with auth / repo management
 - A Rails project whose `bin/dev` respects the `PORT` env var (standard since Rails 7)
+
+### pi notes
+
+[pi](https://pi.dev/) ([docs](https://pi.dev/docs/latest) ·
+[GitHub](https://github.com/earendil-works/pi)) is a minimal coding-agent
+harness supporting 15+ providers. How it's used here:
+
+- `wt` launches it via `ollama launch pi --model kimi-k3:cloud`, so the model
+  comes from Ollama cloud — no separate pi API key, just `ollama signin`.
+- Its global instructions live at `~/.pi/agent/AGENTS.md`, which is exactly
+  where `install.sh` writes the agent-mail protocol block. pi also reads
+  `AGENTS.md` from the project/worktree, so repo-level instructions still apply.
+- Switch models mid-session with `/model` (or `Ctrl+L`); to change the default
+  wt uses, set `WT_PI_CMD`.
+- `pi -p "query"` is its non-interactive print mode — useful if you ever want
+  claude to call pi directly for one-shot subtasks instead of via the mailbox.
 
 ## Setup on a new machine
 
