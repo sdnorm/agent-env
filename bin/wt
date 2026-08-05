@@ -81,11 +81,17 @@ setup_mailbox() {
   local session="$1" wt_path="$2"
   local mail_dir="$MAIL_ROOT/$session"
   mkdir -p "$mail_dir/inbox-claude/done" "$mail_dir/inbox-pi/done"
-  ln -sfn "$mail_dir" "$wt_path/.agents"
-  # Hide the symlink from git status across all worktrees of this repo.
+  # NOTE: named .agent-mail, not .agents — pi owns .agents/ (its skills dir).
+  if [ -e "$wt_path/.agent-mail" ] && [ ! -L "$wt_path/.agent-mail" ]; then
+    die ".agent-mail exists in the worktree and is not a symlink — move it aside"
+  fi
+  ln -sfn "$mail_dir" "$wt_path/.agent-mail"
+  # Hide agent dirs from git status across all worktrees of this repo.
   local exclude="$common_dir/info/exclude"
   mkdir -p "$(dirname "$exclude")"
-  grep -qxF ".agents" "$exclude" 2>/dev/null || echo ".agents" >> "$exclude"
+  for pat in .agent-mail .agents; do
+    grep -qxF "$pat" "$exclude" 2>/dev/null || echo "$pat" >> "$exclude"
+  done
   echo "$mail_dir"
 }
 

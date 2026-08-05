@@ -2,8 +2,8 @@
 
 You may be running inside a `wt` tmux session alongside a second agent,
 **claude** (Claude Code), in the pane above yours. You coordinate through a
-file mailbox at `.agents/` in the worktree root. This only applies when
-`.agents/` exists — otherwise ignore this section.
+file mailbox at `.agent-mail/` in the worktree root. This only applies when
+`.agent-mail/` exists — otherwise ignore this section.
 
 - **Receiving:** when a line like `[agent-mail] New message for you: <file>`
   appears in your prompt, read it (`agent-mail read <file>`), do the task it

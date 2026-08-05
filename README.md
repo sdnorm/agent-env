@@ -77,7 +77,8 @@ Layout per session — claude top-left, pi bottom-left, scratch shell top-right,
 ## Agent coordination
 
 Messages are markdown files under `~/.agents-mail/<repo>--<branch>/`, exposed
-in each worktree as the `.agents` symlink. `agent-mail send|inbox|read|done`
+in each worktree as the `.agent-mail` symlink (not `.agents` — pi owns that
+directory for its skills). `agent-mail send|inbox|read|done`
 is the CLI both agents use; `agent-mail-watch` (started by `wt`) nudges the
 receiving agent's pane over tmux when a message lands. Mail history survives
 `wt done`. Agent-facing protocol docs live in `templates/` and are installed

@@ -8,8 +8,9 @@
 #   agent-mail read <file>                             Print a message
 #   agent-mail done <file>                             Mark a message handled (moves to done/)
 #
-# The mailbox is the .agents directory of the current worktree (a symlink into
+# The mailbox is the .agent-mail symlink in the current worktree (points into
 # ~/.agents-mail/<session>, created by wt). Override with AGENT_MAIL_DIR.
+# (Named .agent-mail because pi owns the .agents/ directory convention.)
 #
 set -euo pipefail
 
@@ -22,13 +23,13 @@ find_mailbox() {
   fi
   local dir="$PWD"
   while [ "$dir" != "/" ]; do
-    if [ -e "$dir/.agents" ]; then
-      echo "$dir/.agents"
+    if [ -e "$dir/.agent-mail" ]; then
+      echo "$dir/.agent-mail"
       return
     fi
     dir="$(dirname "$dir")"
   done
-  die "no .agents mailbox found (run inside a wt worktree, or set AGENT_MAIL_DIR)"
+  die "no .agent-mail mailbox found (run inside a wt worktree, or set AGENT_MAIL_DIR)"
 }
 
 other_agent() {
