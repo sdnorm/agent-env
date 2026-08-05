@@ -40,3 +40,14 @@ receiving agent's pane over tmux when a message lands. Mail history survives
 into `~/.claude/CLAUDE.md` and `~/.pi/agent/AGENTS.md` by `install.sh`.
 
 Env overrides: `WT_CLAUDE_CMD`, `WT_PI_CMD` (pane commands), `WT_MAIL_ROOT`.
+
+## Mail-history search (qmd)
+
+[qmd](https://github.com/tobi/qmd) (`npm install -g @tobilu/qmd`, needs Node
+≥22 — install via npm, not bun, so better-sqlite3's native bindings build)
+indexes `~/.agents-mail` as the `agent-mail` collection so both agents can
+search past handoffs (`qmd search` / `qmd query`). `install.sh` registers the
+collection; `wt done` re-indexes in the background; `wt` runs a weekly
+background `npm update -g @tobilu/qmd` (stamp file in `~/.agents-mail`).
+First semantic query downloads ~2GB of local models; BM25 `qmd search` works
+without them.

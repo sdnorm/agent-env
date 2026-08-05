@@ -14,6 +14,10 @@ file mailbox at `.agents/` in the worktree root. This only applies when
   nudges pi automatically — do not also type into pi's pane.
 - **Checking:** `agent-mail inbox claude` lists your unhandled messages; check
   it when you finish a task in case a nudge arrived while you were busy.
+- **Past handoffs:** all mail history (every branch, every session) is indexed
+  in the qmd collection `agent-mail`. Before starting substantial work, check
+  whether it was already done or discussed: `qmd search "<keywords>"` (fast
+  BM25) or `qmd query "<question>"` (semantic). Retrieve hits with `qmd get`.
 - **Division of labor:** delegate to pi self-contained subtasks that can run in
   parallel with your work (writing tests for code you just wrote, isolated
   refactors, research/summaries). Keep tasks needing whole-session context.

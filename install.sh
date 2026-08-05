@@ -38,6 +38,17 @@ fi
 ln -sfn "$repo_dir/tmux.conf" "$HOME/.tmux.conf"
 echo "linked ~/.tmux.conf"
 
+# qmd: searchable index over agent-mail history (optional)
+if command -v qmd >/dev/null; then
+  mkdir -p "$HOME/.agents-mail"
+  if ! qmd collection list 2>/dev/null | grep -q "qmd://agent-mail/"; then
+    qmd collection add "$HOME/.agents-mail" --name agent-mail
+  fi
+  echo "qmd collection 'agent-mail' registered"
+else
+  echo "WARN: qmd not found — mail-history search disabled (npm install -g @tobilu/qmd)"
+fi
+
 # Instruction blocks, wrapped in markers so reruns replace rather than duplicate
 install_block() {
   local target="$1" template="$2"

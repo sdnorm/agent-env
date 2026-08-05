@@ -97,6 +97,22 @@ ensure_watcher() {
   echo $! > "$pid_file"
 }
 
+# Weekly self-update check for qmd, piggybacked on normal wt usage.
+maybe_update_qmd() {
+  command -v qmd >/dev/null || return 0
+  command -v npm >/dev/null || return 0
+  local stamp="$MAIL_ROOT/.qmd-update-stamp"
+  if [ -f "$stamp" ]; then
+    local mtime
+    mtime="$(stat -f %m "$stamp" 2>/dev/null || stat -c %Y "$stamp" 2>/dev/null)" || return 0
+    [ $(( $(date +%s) - mtime )) -lt 604800 ] && return 0
+  fi
+  mkdir -p "$MAIL_ROOT"
+  touch "$stamp"
+  (npm update -g @tobilu/qmd >/dev/null 2>&1 &)
+  echo "qmd: weekly update check running in background"
+}
+
 stop_watcher() {
   local pid_file="$MAIL_ROOT/$1/watch.pid"
   if [ -f "$pid_file" ]; then
@@ -146,6 +162,11 @@ wt_done() {
     tmux kill-session -t "=$session"
   fi
   echo "mail history kept at $MAIL_ROOT/$session"
+
+  if command -v qmd >/dev/null; then
+    (qmd update >/dev/null 2>&1 &)
+    echo "qmd re-indexing mail history in background"
+  fi
 }
 
 # --- wt <branch> ------------------------------------------------------------
@@ -154,6 +175,8 @@ wt_start() {
   local branch="$1"
   local session; session="$(session_name "$branch")"
   local wt_path="$worktrees_root/$branch"
+
+  maybe_update_qmd
 
   # Already running? Make sure the doorbell is alive, then go there.
   if tmux has-session -t "=$session" 2>/dev/null; then

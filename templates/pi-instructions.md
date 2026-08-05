@@ -12,5 +12,9 @@ file mailbox at `.agents/` in the worktree root. This only applies when
 - **Sending:** `agent-mail send claude "<subject>" "<body>"` to hand something
   off or ask a question. A watcher nudges claude automatically.
 - **Checking:** `agent-mail inbox pi` lists your unhandled messages.
+- **Past handoffs:** all mail history is indexed in the qmd collection
+  `agent-mail`. Before starting substantial work, check whether it was already
+  done or discussed: `qmd search "<keywords>"` (fast BM25) or
+  `qmd query "<question>"` (semantic). Retrieve hits with `qmd get`.
 - You share one worktree with claude — stick to the files your task names, and
   mention in your reply every file you changed.
