@@ -13,7 +13,7 @@
 #   │      pi      │   bin/dev    │
 #   └──────────────┴──────────────┘
 #
-# Overrides (env): WT_CLAUDE_CMD, WT_PI_CMD, WT_MAIL_ROOT
+# Overrides (env): WT_CLAUDE_CMD, WT_PI_CMD, WT_DEV_CMD, WT_SETUP_CMD, WT_MAIL_ROOT
 #
 set -euo pipefail
 
@@ -24,6 +24,8 @@ command -v git >/dev/null || die "git is not installed"
 
 CLAUDE_CMD="${WT_CLAUDE_CMD:-claude}"
 PI_CMD="${WT_PI_CMD:-ollama launch pi --model kimi-k3:cloud}"
+DEV_CMD="${WT_DEV_CMD:-bin/dev}"       # runs with PORT set; Rails default
+SETUP_CMD="${WT_SETUP_CMD:-bin/setup}" # runs once in fresh worktrees
 MAIL_ROOT="${WT_MAIL_ROOT:-$HOME/.agents-mail}"
 
 # --- Repo context -----------------------------------------------------------
@@ -237,8 +239,8 @@ wt_start() {
   ensure_watcher "$session" "$mail_dir"
 
   local dev_cmd="echo '── dev server on http://localhost:$port ──'; "
-  [ -n "$fresh" ] && dev_cmd+="bin/setup && "
-  dev_cmd+="PORT=$port bin/dev"
+  [ -n "$fresh" ] && dev_cmd+="$SETUP_CMD && "
+  dev_cmd+="PORT=$port $DEV_CMD"
   tmux send-keys -t "$p_dev" "$dev_cmd" Enter
   tmux send-keys -t "$p_claude" "$CLAUDE_CMD" Enter
   tmux send-keys -t "$p_pi" "$PI_CMD" Enter
