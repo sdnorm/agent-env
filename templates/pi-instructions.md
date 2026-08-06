@@ -19,6 +19,13 @@ file mailbox at `.agent-mail/` in the worktree root. This only applies when
 - You share one worktree with claude — stick to the files your task names, and
   mention in your reply every file you changed.
 
+## Commit hygiene
+
+- **No AI attribution, ever.** Commit messages and PR descriptions must not
+  contain Co-Authored-By trailers, "Generated with ..." lines, or any credit
+  to pi, agent-mail, or other tools. Write commit messages as plain,
+  conventional descriptions of the change — nothing about how it was made.
+
 ## Guardrails (wt sessions)
 
 - **Off-limits:** credential files (master.key, config/credentials/, .env

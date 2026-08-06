@@ -83,16 +83,24 @@ s.hooks = s.hooks || {};
 s.hooks.PreToolUse = s.hooks.PreToolUse || [];
 const present = s.hooks.PreToolUse.some(e =>
   (e.hooks || []).some(h => String(h.command || "").includes("credential-guard")));
+let changed = false;
 if (!present) {
   s.hooks.PreToolUse.push({
     matcher: "Bash|Read|Edit|Write",
     hooks: [{ type: "command", command: hookPath, timeout: 10 }],
   });
-  fs.writeFileSync(file, JSON.stringify(s, null, 2) + "\n");
+  changed = true;
   console.log("installed credential-guard hook into " + file);
 } else {
   console.log("credential-guard hook already present in " + file);
 }
+// No AI attribution in commits/PRs (only set if the user hasn't configured it)
+if (s.attribution === undefined) {
+  s.attribution = { commit: "", pr: "", sessionUrl: false };
+  changed = true;
+  console.log("disabled commit/PR attribution in " + file);
+}
+if (changed) fs.writeFileSync(file, JSON.stringify(s, null, 2) + "\n");
 EOF
 
 echo "== done =="

@@ -25,6 +25,13 @@ file mailbox at `.agent-mail/` in the worktree root. This only applies when
   Credential and production work is yours, never pi's (you have the approval
   gate; pi does not).
 
+## Commit hygiene
+
+- **No AI attribution.** Commit messages and PR descriptions must not contain
+  Co-Authored-By trailers, "Generated with ..." lines, or credit to claude,
+  pi, or agent-mail. Describe the change, not how it was made. When delegating
+  to pi, do not ask it to credit anyone either.
+
 ## Guardrails (wt sessions)
 
 - **Approval gate:** touching credentials (master.key, config/credentials,
