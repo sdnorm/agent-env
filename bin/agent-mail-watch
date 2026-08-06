@@ -16,7 +16,39 @@ set -uo pipefail
 session="$1"
 mailbox="$2"
 notified="$mailbox/.notified"
-touch "$notified"
+nudge_log="$mailbox/.nudge-log"
+touch "$notified" "$nudge_log"
+
+# Circuit breaker: too many agent-to-agent nudges = runaway loop. Trips into
+# a paused state that a human clears with `agent-mail resume`.
+BURST_MAX="${WATCH_BURST_MAX:-8}"      # nudges per 10 minutes
+HOURLY_MAX="${WATCH_HOURLY_MAX:-30}"   # nudges per hour
+
+breaker_tripped() {
+  local now burst hourly
+  now="$(date +%s)"
+  # prune entries older than an hour
+  awk -v cutoff=$((now - 3600)) '$1 >= cutoff' "$nudge_log" > "$nudge_log.tmp" && mv "$nudge_log.tmp" "$nudge_log"
+  hourly="$(wc -l < "$nudge_log" | tr -d ' ')"
+  burst="$(awk -v cutoff=$((now - 600)) '$1 >= cutoff' "$nudge_log" | wc -l | tr -d ' ')"
+  [ "$burst" -ge "$BURST_MAX" ] || [ "$hourly" -ge "$HOURLY_MAX" ]
+}
+
+trip_breaker() {
+  echo "$(date '+%Y-%m-%d %H:%M:%S') breaker tripped" > "$mailbox/.paused"
+  {
+    echo "---"
+    echo "from: watcher"
+    echo "to: user"
+    echo "subject: [alert] circuit breaker tripped — possible agent loop"
+    echo "date: $(date '+%Y-%m-%d %H:%M:%S')"
+    echo "---"
+    echo
+    echo "Nudging is paused ($BURST_MAX+/10min or $HOURLY_MAX+/hour agent-to-agent messages)."
+    echo "Inspect the inboxes, then run 'agent-mail resume' in the worktree to continue."
+  } > "$mailbox/inbox-user/$(date +%Y%m%d-%H%M%S)-breaker-tripped.md"
+  tmux display-message -t "=$session" "agent-mail: circuit breaker tripped — nudging paused (agent-mail resume)" 2>/dev/null || true
+}
 
 pane_for() {
   sed -n "s/^$1=//p" "$mailbox/panes" | head -1
@@ -33,13 +65,20 @@ nudge() {
 }
 
 while tmux has-session -t "=$session" 2>/dev/null; do
-  for agent in claude pi; do
-    for f in "$mailbox/inbox-$agent"/*.md; do
-      [ -f "$f" ] || continue
-      grep -qxF "$f" "$notified" 2>/dev/null && continue
-      nudge "$agent" "$f"
-      echo "$f" >> "$notified"
+  if [ ! -f "$mailbox/.paused" ]; then
+    for agent in claude pi; do
+      for f in "$mailbox/inbox-$agent"/*.md; do
+        [ -f "$f" ] || continue
+        grep -qxF "$f" "$notified" 2>/dev/null && continue
+        if breaker_tripped; then
+          trip_breaker
+          break 2
+        fi
+        nudge "$agent" "$f"
+        echo "$f" >> "$notified"
+        date +%s >> "$nudge_log"
+      done
     done
-  done
+  fi
   sleep 2
 done

@@ -72,4 +72,27 @@ install_block() {
 install_block "$HOME/.claude/CLAUDE.md" "$repo_dir/templates/claude-instructions.md"
 install_block "$HOME/.pi/agent/AGENTS.md" "$repo_dir/templates/pi-instructions.md"
 
+# Credential-guard PreToolUse hook in ~/.claude/settings.json (idempotent merge)
+chmod +x "$repo_dir"/hooks/*.js
+node - "$HOME/.claude/settings.json" "$repo_dir/hooks/credential-guard.js" << 'EOF'
+const fs = require("fs");
+const [file, hookPath] = process.argv.slice(2);
+let s = {};
+try { s = JSON.parse(fs.readFileSync(file, "utf8")); } catch {}
+s.hooks = s.hooks || {};
+s.hooks.PreToolUse = s.hooks.PreToolUse || [];
+const present = s.hooks.PreToolUse.some(e =>
+  (e.hooks || []).some(h => String(h.command || "").includes("credential-guard")));
+if (!present) {
+  s.hooks.PreToolUse.push({
+    matcher: "Bash|Read|Edit|Write",
+    hooks: [{ type: "command", command: hookPath, timeout: 10 }],
+  });
+  fs.writeFileSync(file, JSON.stringify(s, null, 2) + "\n");
+  console.log("installed credential-guard hook into " + file);
+} else {
+  console.log("credential-guard hook already present in " + file);
+}
+EOF
+
 echo "== done =="

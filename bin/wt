@@ -80,7 +80,7 @@ find_free_port() {
 setup_mailbox() {
   local session="$1" wt_path="$2"
   local mail_dir="$MAIL_ROOT/$session"
-  mkdir -p "$mail_dir/inbox-claude/done" "$mail_dir/inbox-pi/done"
+  mkdir -p "$mail_dir/inbox-claude/done" "$mail_dir/inbox-pi/done" "$mail_dir/inbox-user/done" "$mail_dir/logs"
   # NOTE: named .agent-mail, not .agents — pi owns .agents/ (its skills dir).
   if [ -e "$wt_path/.agent-mail" ] && [ ! -L "$wt_path/.agent-mail" ]; then
     die ".agent-mail exists in the worktree and is not a symlink — move it aside"
@@ -249,6 +249,10 @@ wt_start() {
 
   printf 'claude=%s\npi=%s\n' "$p_claude" "$p_pi" > "$mail_dir/panes"
   ensure_watcher "$session" "$mail_dir"
+
+  # Audit trail: log both agent panes (survives wt done, greppable later)
+  tmux pipe-pane -t "$p_claude" -o "cat >> '$mail_dir/logs/claude.log'"
+  tmux pipe-pane -t "$p_pi" -o "cat >> '$mail_dir/logs/pi.log'"
 
   local dev_cmd="echo '── dev server on http://localhost:$port ──'; "
   [ -n "$fresh" ] && dev_cmd+="$SETUP_CMD && "

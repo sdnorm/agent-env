@@ -3,10 +3,17 @@
 # agent-mail — file-based mailbox for coordinating agents (claude + pi)
 #
 # Usage:
-#   agent-mail send <claude|pi> <subject> [body ...]   Send a message (body also read from stdin)
-#   agent-mail inbox <claude|pi>                       List unhandled messages
-#   agent-mail read <file>                             Print a message
-#   agent-mail done <file>                             Mark a message handled (moves to done/)
+#   agent-mail send <to> <subject> [body ...]   Send a message (to: claude|pi|user; body also stdin)
+#   agent-mail inbox <claude|pi|user>           List unhandled messages
+#   agent-mail read <file>                      Print a message
+#   agent-mail done <file>                      Mark a message handled (moves to done/)
+#
+# Approval gate (used by the credential-guard hook):
+#   agent-mail request <scope> <reason ...>     Agent asks the human for a grant (message to user)
+#   agent-mail grant <scope> [--minutes N]      Human grants access (credentials|prod-read: 15m, prod-write: 5m)
+#   agent-mail check-grant <scope>              Exit 0 if an unexpired grant exists
+#   agent-mail revoke <scope>                   Remove a grant early
+#   agent-mail resume                           Clear a tripped watcher circuit breaker
 #
 # The mailbox is the .agent-mail symlink in the current worktree (points into
 # ~/.agents-mail/<session>, created by wt). Override with AGENT_MAIL_DIR.
@@ -36,7 +43,15 @@ other_agent() {
   case "$1" in
     claude) echo "pi" ;;
     pi)     echo "claude" ;;
-    *)      die "unknown agent '$1' (expected claude or pi)" ;;
+    user)   echo "claude" ;;
+    *)      die "unknown recipient '$1' (expected claude, pi, or user)" ;;
+  esac
+}
+
+valid_scope() {
+  case "$1" in
+    credentials|prod-read|prod-write) ;;
+    *) die "unknown scope '$1' (expected credentials, prod-read, or prod-write)" ;;
   esac
 }
 
@@ -101,7 +116,61 @@ case "$cmd" in
     echo "moved to $dest/$(basename "$2")"
     ;;
 
+  request)
+    [ $# -ge 3 ] || die "usage: agent-mail request <scope> <reason ...>"
+    scope="$2"; shift 2; valid_scope "$scope"
+    from="${AGENT_MAIL_FROM:-claude}"
+    AGENT_MAIL_FROM="$from" "$0" send user "[approval] $scope" \
+      "Agent '$from' requests '$scope' access: $*"$'\n\n'"To approve, run: agent-mail grant $scope" >/dev/null
+    echo "approval requested for '$scope' — waiting for the user to run: agent-mail grant $scope"
+    ;;
+
+  grant)
+    [ $# -ge 2 ] || die "usage: agent-mail grant <scope> [--minutes N]"
+    scope="$2"; shift 2; valid_scope "$scope"
+    case "$scope" in prod-write) minutes=5 ;; *) minutes=15 ;; esac
+    while [ $# -gt 0 ]; do
+      case "$1" in
+        --minutes) minutes="$2"; shift 2 ;;
+        *) die "unknown option '$1'" ;;
+      esac
+    done
+    mailbox="$(find_mailbox)"
+    mkdir -p "$mailbox/grants"
+    expiry=$(( $(date +%s) + minutes * 60 ))
+    echo "$expiry" > "$mailbox/grants/$scope"
+    echo "$(date '+%Y-%m-%d %H:%M:%S') granted $scope for ${minutes}m" >> "$mailbox/grants.log"
+    echo "granted '$scope' for ${minutes} minutes"
+    ;;
+
+  check-grant)
+    [ $# -ge 2 ] || die "usage: agent-mail check-grant <scope>"
+    valid_scope "$2"
+    mailbox="$(find_mailbox)"
+    grant_file="$mailbox/grants/$2"
+    if [ -f "$grant_file" ] && [ "$(cat "$grant_file")" -gt "$(date +%s)" ] 2>/dev/null; then
+      exit 0
+    fi
+    rm -f "$grant_file"
+    exit 1
+    ;;
+
+  revoke)
+    [ $# -ge 2 ] || die "usage: agent-mail revoke <scope>"
+    valid_scope "$2"
+    mailbox="$(find_mailbox)"
+    rm -f "$mailbox/grants/$2"
+    echo "$(date '+%Y-%m-%d %H:%M:%S') revoked $2" >> "$mailbox/grants.log"
+    echo "revoked '$2'"
+    ;;
+
+  resume)
+    mailbox="$(find_mailbox)"
+    rm -f "$mailbox/.paused"
+    echo "watcher resumed — un-notified messages will be nudged on the next poll"
+    ;;
+
   *)
-    die "usage: agent-mail send|inbox|read|done (see script header)"
+    die "usage: agent-mail send|inbox|read|done|request|grant|check-grant|revoke|resume (see script header)"
     ;;
 esac
