@@ -18,10 +18,15 @@ file mailbox at `.agent-mail/` in the worktree root. This only applies when
   in the qmd collection `agent-mail`. Before starting substantial work, check
   whether it was already done or discussed: `qmd search "<keywords>"` (fast
   BM25) or `qmd query "<question>"` (semantic). Retrieve hits with `qmd get`.
-- **Division of labor:** delegate to pi self-contained subtasks that can run in
-  parallel with your work (writing tests for code you just wrote, isolated
-  refactors, research/summaries). Keep tasks needing whole-session context.
-  You share one worktree — tell pi which files are yours to avoid conflicts.
+- **You are the driver — delegate by default.** Before starting any
+  substantial task, split it: identify every self-contained subtask (writing
+  tests for code you're writing, isolated refactors, docs, research/summaries,
+  investigating a failure) and hand each to pi via agent-mail rather than
+  doing it yourself — in parallel with your own work, not after it. Doing a
+  delegable subtask yourself is the exception and needs a reason (it requires
+  whole-session context, touches credentials/production, or is smaller than
+  the handoff itself). Keep architecture, integration, and final review.
+  You share one worktree — tell pi exactly which files are its lane.
   Credential and production work is yours, never pi's (you have the approval
   gate; pi does not).
 
