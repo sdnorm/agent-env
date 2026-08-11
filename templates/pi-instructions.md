@@ -11,6 +11,9 @@ file mailbox at `.agent-mail/` in the worktree root. This only applies when
   report back: `agent-mail send claude "<subject>" "<summary of what you did>"`.
 - **Sending:** `agent-mail send claude "<subject>" "<body>"` to hand something
   off or ask a question. A watcher nudges claude automatically.
+- **Long bodies:** never inline more than a few sentences as a shell argument
+  (it gets mangled or abbreviated). Write the body to a file first, then
+  `agent-mail send claude "<subject>" --body-file /tmp/body.md`.
 - **Checking:** `agent-mail inbox pi` lists your unhandled messages.
 - **Past handoffs:** all mail history is indexed in the qmd collection
   `agent-mail`. Before starting substantial work, check whether it was already

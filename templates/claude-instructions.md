@@ -8,10 +8,13 @@ file mailbox at `.agent-mail/` in the worktree root. This only applies when
 - **Receiving:** when a line like `[agent-mail] New message for you: <file>`
   appears in your prompt, read it (`agent-mail read <file>`), act on it, and
   mark it handled (`agent-mail done <file>`). Reply if a reply is expected.
-- **Sending / delegating:** `agent-mail send pi "<subject>" "<body>"` (longer
-  bodies via stdin). Be specific: include file paths, acceptance criteria, and
-  ask pi to reply with `agent-mail send claude ...` when finished. A watcher
-  nudges pi automatically — do not also type into pi's pane.
+- **Sending / delegating:** `agent-mail send pi "<subject>" "<body>"`. Be
+  specific: include file paths, acceptance criteria, and ask pi to reply with
+  `agent-mail send claude ...` when finished. A watcher nudges pi
+  automatically — do not also type into pi's pane.
+- **Long bodies:** never inline more than a few sentences as a shell argument
+  (it gets mangled or abbreviated). Write the body to a file first, then
+  `agent-mail send pi "<subject>" --body-file /tmp/body.md`.
 - **Checking:** `agent-mail inbox claude` lists your unhandled messages; check
   it when you finish a task in case a nudge arrived while you were busy.
 - **Past handoffs:** all mail history (every branch, every session) is indexed

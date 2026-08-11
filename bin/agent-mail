@@ -3,7 +3,9 @@
 # agent-mail — file-based mailbox for coordinating agents (claude + pi)
 #
 # Usage:
-#   agent-mail send <to> <subject> [body ...]   Send a message (to: claude|pi|user; body also stdin)
+#   agent-mail send <to> <subject> [body ...]   Send a message (to: claude|pi|user)
+#   agent-mail send <to> <subject> --body-file <path>   Body from a file (best for long messages)
+#   agent-mail send <to> <subject> < file               Body from stdin works too
 #   agent-mail inbox <claude|pi|user>           List unhandled messages
 #   agent-mail read <file>                      Print a message
 #   agent-mail done <file>                      Mark a message handled (moves to done/)
@@ -65,7 +67,10 @@ case "$cmd" in
     inbox="$mailbox/inbox-$to"
     [ -d "$inbox" ] || die "no inbox at $inbox"
 
-    if [ $# -gt 0 ]; then
+    if [ "${1:-}" = "--body-file" ]; then
+      [ -n "${2:-}" ] && [ -f "$2" ] || die "--body-file: no such file: ${2:-<missing>}"
+      body="$(cat "$2")"
+    elif [ $# -gt 0 ]; then
       body="$*"
     elif [ ! -t 0 ]; then
       body="$(cat)"
