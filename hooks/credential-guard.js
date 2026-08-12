@@ -103,16 +103,39 @@ process.stdin.on("end", () => {
     }
     return null;
   })();
-  if (!scope) process.exit(0);
 
   const mailbox = findMailbox(process.env.CLAUDE_PROJECT_DIR || process.cwd());
   if (!mailbox) process.exit(0); // not a wt session — normal permission flow applies
 
+  // Per-repo pattern extensions: <mailbox>/guard-patterns, "scope:regex" lines
+  let extraScope = null;
+  try {
+    for (const line of fs.readFileSync(path.join(mailbox, "guard-patterns"), "utf8").split("\n")) {
+      const m = line.match(/^(credentials|prod-read|prod-write):(.+)$/);
+      if (m && new RegExp(m[2], "i").test(text)) {
+        extraScope = m[1];
+        break;
+      }
+    }
+  } catch {}
+  const effectiveScope = pickStricter(scope, extraScope);
+  if (!effectiveScope) process.exit(0);
+
   // prod-write grant also satisfies prod-read
-  if (hasGrant(mailbox, scope) || (scope === "prod-read" && hasGrant(mailbox, "prod-write"))) {
+  if (
+    hasGrant(mailbox, effectiveScope) ||
+    (effectiveScope === "prod-read" && hasGrant(mailbox, "prod-write"))
+  ) {
     process.exit(0);
   }
 
-  deny(scope);
+  deny(effectiveScope);
   process.exit(0);
 });
+
+function pickStricter(a, b) {
+  const rank = { "prod-write": 3, credentials: 2, "prod-read": 1 };
+  if (!a) return b;
+  if (!b) return a;
+  return (rank[a] || 0) >= (rank[b] || 0) ? a : b;
+}

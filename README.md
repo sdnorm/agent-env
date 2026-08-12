@@ -120,27 +120,37 @@ into `~/.claude/CLAUDE.md` and `~/.pi/agent/AGENTS.md` by `install.sh`.
 Env overrides: `WT_CLAUDE_CMD`, `WT_PI_CMD` (pane commands), `WT_DEV_CMD`,
 `WT_SETUP_CMD`, `WT_MAIL_ROOT`.
 
-## Rails assumptions & customizing for other stacks
+## Other languages & frameworks (.wt-config)
 
-`wt` is Rails-flavored in exactly three places (all in `bin/wt`):
+Defaults are Rails, but every stack-specific behavior is declared per-repo in
+a `.wt-config` file (plain shell, auto-hidden from git) in the main checkout:
 
-1. **Bootstrap file copy** — fresh worktrees get `.env*`, `config/master.key`,
-   and `config/credentials/*.key` copied from the main checkout (the
-   "Untracked files worktrees don't inherit" block in `wt_start`). Other
-   stacks keep secrets elsewhere (`.envrc`, `config/local.*`, etc.) — extend
-   that block.
-2. **Setup command** — fresh worktrees run `bin/setup` before the dev server.
-   Override per-project with `WT_SETUP_CMD` (e.g. `npm install`, `mise run
-   setup`, or `true` to skip).
-3. **Dev server command** — the bottom-right pane runs `PORT=<port> bin/dev`.
-   Override with `WT_DEV_CMD` (e.g. `npm run dev`, `cargo watch -x run`).
-   Whatever you use must read the `PORT` env var, or ignore ports entirely.
+```sh
+# .wt-config for a Node/Vite app
+WT_DEV_CMD="npm run dev"          # runs with PORT set
+WT_SETUP_CMD="npm install"        # once per fresh worktree ("true" to skip)
+WT_COPY_PATTERNS=".env .env.local"  # untracked files to copy into worktrees
+WT_PORT_BASE=5173                 # port scan starts here
+# WT_GROK_CMD="..."               # per-repo agent command overrides work too
+```
 
-Per-project overrides without editing anything: export `WT_*` vars from the
-repo's own env (direnv `.envrc` in the main checkout works well, since `wt` is
-run from inside the repo). Everything else — worktrees, tmux layout, mailbox,
-watcher, qmd — is stack-agnostic. The port scan range (3000–3100) lives in
-`find_free_port` if a stack conventionally uses other ports.
+A Django repo might use `WT_DEV_CMD="python manage.py runserver 0.0.0.0:\$PORT"`
+and `WT_COPY_PATTERNS=".env local_settings.py"`; Rust,
+`WT_DEV_CMD="cargo watch -x run"`. Exported env vars beat `.wt-config`, which
+beats the Rails defaults. The dev command must respect `PORT` (or not care).
+
+Stack-specific *guardrails* extend the same way: a `.wt-guard-patterns` file
+(one `scope:regex` per line) adds repo-specific secret files or prod commands
+to the credential-guard hook, e.g.:
+
+```
+credentials:secrets/.*\.pem
+prod-write:terraform apply
+```
+
+Roster overrides live in `.wt-agents` (see Agent roster). Everything else —
+worktrees, tmux layout, mailbox, watcher, shims, push guard, qmd — is
+stack-agnostic already.
 
 ## Mail-history search (qmd)
 
