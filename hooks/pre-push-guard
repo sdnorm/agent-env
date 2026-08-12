@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+# agent-env push guard — installed by wt into <repo>/.git/hooks/pre-push.
+#
+# Enforced ONLY inside *-worktrees/ checkouts (any agent, any tool): blocks
+# pushes to the default branch, branch deletions, and non-fast-forward (force)
+# pushes. The main checkout — where the human works — is untouched.
+# Human override: WT_ALLOW_PUSH=1 git push ...
+set -uo pipefail
+
+top="$(git rev-parse --show-toplevel 2>/dev/null)" || exit 0
+case "$top" in *-worktrees/*) ;; *) exit 0 ;; esac
+[ -n "${WT_ALLOW_PUSH:-}" ] && exit 0
+
+zero="0000000000000000000000000000000000000000"
+def="$(git symbolic-ref --quiet refs/remotes/origin/HEAD 2>/dev/null)" || def=""
+def="${def#refs/remotes/origin/}"
+[ -n "$def" ] || def="main"
+
+while read -r _local_ref local_sha remote_ref remote_sha; do
+  if [ "$remote_ref" = "refs/heads/$def" ]; then
+    echo "wt-guard: pushing to '$def' from a worktree is blocked — open a PR instead. (Human override: WT_ALLOW_PUSH=1)" >&2
+    exit 1
+  fi
+  if [ "$local_sha" = "$zero" ]; then
+    echo "wt-guard: deleting remote branches from a worktree is blocked. (Human override: WT_ALLOW_PUSH=1)" >&2
+    exit 1
+  fi
+  if [ "$remote_sha" != "$zero" ] && ! git merge-base --is-ancestor "$remote_sha" "$local_sha" 2>/dev/null; then
+    echo "wt-guard: non-fast-forward (force) push from a worktree is blocked. (Human override: WT_ALLOW_PUSH=1)" >&2
+    exit 1
+  fi
+done
+exit 0

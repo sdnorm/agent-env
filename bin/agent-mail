@@ -41,12 +41,12 @@ find_mailbox() {
   die "no .agent-mail mailbox found (run inside a wt worktree, or set AGENT_MAIL_DIR)"
 }
 
+# Fallback sender inference for two-agent setups; multi-agent panes export
+# AGENT_MAIL_FROM, which always wins.
 other_agent() {
   case "$1" in
     claude) echo "pi" ;;
-    pi)     echo "claude" ;;
-    user)   echo "claude" ;;
-    *)      die "unknown recipient '$1' (expected claude, pi, or user)" ;;
+    *)      echo "claude" ;;
   esac
 }
 

@@ -66,7 +66,7 @@ nudge() {
 
 while tmux has-session -t "=$session" 2>/dev/null; do
   if [ ! -f "$mailbox/.paused" ]; then
-    for agent in claude pi; do
+    for agent in $(cut -d= -f1 "$mailbox/panes" 2>/dev/null); do
       for f in "$mailbox/inbox-$agent"/*.md; do
         [ -f "$f" ] || continue
         grep -qxF "$f" "$notified" 2>/dev/null && continue

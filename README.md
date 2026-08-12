@@ -63,16 +63,49 @@ wt my-branch          # create branch/worktree + tmux session, attach
 wt done [my-branch]   # kill session, remove worktree (keeps branch; --force if dirty)
 ```
 
-Layout per session — claude top-left, pi bottom-left, scratch shell top-right,
-`bin/dev` on a free port bottom-right:
+Layout per session — the driver (first roster entry) top-left, workers stacked
+below it, scratch shell top-right, `bin/dev` on a free port bottom-right:
 
 ```
 ┌──────────────┬──────────────┐
 │    claude    │  empty shell │
-├──────────────┼──────────────┤
-│      pi      │   bin/dev    │
+├──────────────┤              │
+│      pi      ├──────────────┤
+├──────────────┤   bin/dev    │
+│     grok     │              │
 └──────────────┴──────────────┘
 ```
+
+## Agent roster & routing
+
+`agents.conf` defines the agents (`name | pane command | routing notes`);
+first entry is the driver. Override per-repo with a `.wt-agents` file in the
+main checkout, or per-session with `WT_<NAME>_CMD`. Each pane gets
+`AGENT_MAIL_FROM=<name>` exported so `agent-mail` knows the sender. `wt`
+writes the roster (names + strengths) to `.agent-mail/roster`, which the
+driver reads to route each subtask to the best-fit worker. Workers that read
+`AGENTS.md` (grok, pi) get the protocol from a generated worktree `AGENTS.md`
+(only created when the repo doesn't track its own).
+
+## Guardrails
+
+Mechanical, enforced for **every** agent and tool:
+
+- **Push guard** — a `pre-push` git hook (installed by wt, active only inside
+  `*-worktrees/` checkouts) blocks pushes to the default branch, branch
+  deletions, and force pushes. Human override: `WT_ALLOW_PUSH=1 git push`.
+- **Prod-CLI shims** — `shims/` (kamal, heroku, railway, fly, flyctl) is
+  prepended to PATH in agent panes; the real CLI only runs with an active
+  grant: `agent-mail grant prod-read` (verify-only) or `prod-write` (5-min,
+  per-deploy). Agents request via `agent-mail request <scope> "<reason>"`.
+- **Watcher circuit breaker** — pauses nudging after 8 nudges/10 min or
+  30/hour and alerts `inbox-user`; clear with `agent-mail resume`.
+- **Pane logs** — every agent pane is logged to `<mailbox>/logs/<name>.log`.
+
+Claude-only (hook-enforced): credential-file access (`master.key`,
+`config/credentials/`, `rails credentials:*`) needs `agent-mail grant
+credentials`. Workers get this rule via instructions only — credential work
+routes to the driver.
 
 ## Agent coordination
 

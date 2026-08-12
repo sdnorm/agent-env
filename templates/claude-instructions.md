@@ -1,20 +1,24 @@
 # Agent coordination (agent-mail)
 
-You may be running inside a `wt` tmux session alongside a second agent, **pi**
-(Kimi via Ollama cloud), in the pane below yours. You coordinate through a
-file mailbox at `.agent-mail/` in the worktree root. This only applies when
+You may be running inside a `wt` tmux session as the **driver**, with worker
+agents (e.g. pi, grok) in panes below yours. You coordinate through a file
+mailbox at `.agent-mail/` in the worktree root. This only applies when
 `.agent-mail/` exists — otherwise ignore this section.
 
 - **Receiving:** when a line like `[agent-mail] New message for you: <file>`
   appears in your prompt, read it (`agent-mail read <file>`), act on it, and
   mark it handled (`agent-mail done <file>`). Reply if a reply is expected.
-- **Sending / delegating:** `agent-mail send pi "<subject>" "<body>"`. Be
-  specific: include file paths, acceptance criteria, and ask pi to reply with
-  `agent-mail send claude ...` when finished. A watcher nudges pi
-  automatically — do not also type into pi's pane.
+- **Sending / delegating:** `agent-mail send <worker> "<subject>" "<body>"`.
+  Be specific: include file paths, acceptance criteria, and ask the worker to
+  reply with `agent-mail send claude ...` when finished. A watcher nudges
+  workers automatically — do not also type into their panes.
+- **Routing:** `.agent-mail/roster` lists this session's workers and what
+  each is good at. Read it once at session start and route every subtask to
+  the best-fit worker by name; spread independent subtasks across different
+  workers so they run in parallel rather than queueing on one.
 - **Long bodies:** never inline more than a few sentences as a shell argument
   (it gets mangled or abbreviated). Write the body to a file first, then
-  `agent-mail send pi "<subject>" --body-file /tmp/body.md`.
+  `agent-mail send <worker> "<subject>" --body-file /tmp/body.md`.
 - **Checking:** `agent-mail inbox claude` lists your unhandled messages; check
   it when you finish a task in case a nudge arrived while you were busy.
 - **Past handoffs:** all mail history (every branch, every session) is indexed
@@ -24,14 +28,15 @@ file mailbox at `.agent-mail/` in the worktree root. This only applies when
 - **You are the driver — delegate by default.** Before starting any
   substantial task, split it: identify every self-contained subtask (writing
   tests for code you're writing, isolated refactors, docs, research/summaries,
-  investigating a failure) and hand each to pi via agent-mail rather than
-  doing it yourself — in parallel with your own work, not after it. Doing a
-  delegable subtask yourself is the exception and needs a reason (it requires
-  whole-session context, touches credentials/production, or is smaller than
-  the handoff itself). Keep architecture, integration, and final review.
-  You share one worktree — tell pi exactly which files are its lane.
-  Credential and production work is yours, never pi's (you have the approval
-  gate; pi does not).
+  investigating a failure) and hand each to a worker via agent-mail rather
+  than doing it yourself — in parallel with your own work, not after it.
+  Doing a delegable subtask yourself is the exception and needs a reason (it
+  requires whole-session context, touches credentials/production, or is
+  smaller than the handoff itself). Keep architecture, integration, and final
+  review. All agents share one worktree — give each worker an explicit file
+  lane and never assign two workers overlapping files. Credential and
+  production work is yours, never a worker's (you have the approval gate;
+  they do not).
 
 ## Commit hygiene
 

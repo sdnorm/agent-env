@@ -6,14 +6,18 @@
 #   wt <branch>                Create/attach a worktree session for <branch>
 #   wt done [branch] [--force] Kill the session and remove the worktree
 #
-# Layout:
+# Layout (driver = first roster entry, workers stacked below):
 #   ┌──────────────┬──────────────┐
 #   │    claude    │  empty shell │
-#   ├──────────────┼──────────────┤
-#   │      pi      │   bin/dev    │
+#   ├──────────────┤              │
+#   │      pi      ├──────────────┤
+#   ├──────────────┤   bin/dev    │
+#   │     grok     │              │
 #   └──────────────┴──────────────┘
 #
-# Overrides (env): WT_CLAUDE_CMD, WT_PI_CMD, WT_DEV_CMD, WT_SETUP_CMD, WT_MAIL_ROOT
+# Roster: agents.conf in the agent-env repo, overridable per-repo with a
+# .wt-agents file in the main checkout (format: name | command | notes).
+# Overrides (env): WT_<NAME>_CMD, WT_DEV_CMD, WT_SETUP_CMD, WT_MAIL_ROOT
 #
 set -euo pipefail
 
@@ -22,11 +26,39 @@ die() { echo "wt: $*" >&2; exit 1; }
 command -v tmux >/dev/null || die "tmux is not installed"
 command -v git >/dev/null || die "git is not installed"
 
-CLAUDE_CMD="${WT_CLAUDE_CMD:-claude}"
-PI_CMD="${WT_PI_CMD:-ollama launch pi --model kimi-k3:cloud}"
 DEV_CMD="${WT_DEV_CMD:-bin/dev}"       # runs with PORT set; Rails default
 SETUP_CMD="${WT_SETUP_CMD:-bin/setup}" # runs once in fresh worktrees
 MAIL_ROOT="${WT_MAIL_ROOT:-$HOME/.agents-mail}"
+
+# Resolve the agent-env repo dir (wt is symlinked into ~/.local/bin)
+script_path="${BASH_SOURCE[0]}"
+while [ -L "$script_path" ]; do script_path="$(readlink "$script_path")"; done
+AGENT_ENV_DIR="$(cd "$(dirname "$script_path")/.." && pwd)"
+
+# --- Agent roster -----------------------------------------------------------
+
+AGENT_NAMES=(); AGENT_CMDS=(); AGENT_NOTES=()
+load_roster() {
+  local conf line name cmd notes upper override
+  if [ -f "$main_checkout/.wt-agents" ]; then
+    conf="$main_checkout/.wt-agents"
+  else
+    conf="$AGENT_ENV_DIR/agents.conf"
+  fi
+  while IFS= read -r line || [ -n "$line" ]; do
+    case "$line" in ''|\#*) continue ;; esac
+    name="$(echo "$line" | cut -d'|' -f1 | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+    cmd="$(echo "$line" | cut -d'|' -f2 | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+    notes="$(echo "$line" | cut -d'|' -f3- | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+    [ -n "$name" ] && [ -n "$cmd" ] || continue
+    upper="$(echo "$name" | tr '[:lower:]-' '[:upper:]_')"
+    override="$(eval echo "\${WT_${upper}_CMD:-}")"
+    [ -n "$override" ] && cmd="$override"
+    command -v "${cmd%% *}" >/dev/null || echo "wt: warning — '$name' command not found: ${cmd%% *} (pane will error until installed)" >&2
+    AGENT_NAMES+=("$name"); AGENT_CMDS+=("$cmd"); AGENT_NOTES+=("$notes")
+  done < "$conf"
+  [ "${#AGENT_NAMES[@]}" -ge 1 ] || die "no agents found in roster: $conf"
+}
 
 # --- Repo context -----------------------------------------------------------
 
@@ -79,17 +111,38 @@ find_free_port() {
 
 setup_mailbox() {
   local session="$1" wt_path="$2"
-  local mail_dir="$MAIL_ROOT/$session"
-  mkdir -p "$mail_dir/inbox-claude/done" "$mail_dir/inbox-pi/done" "$mail_dir/inbox-user/done" "$mail_dir/logs"
+  local mail_dir="$MAIL_ROOT/$session" name i
+  for name in "${AGENT_NAMES[@]}" user; do
+    mkdir -p "$mail_dir/inbox-$name/done"
+  done
+  mkdir -p "$mail_dir/logs" "$mail_dir/grants"
+  # Roster file: the driver reads this to route subtasks to the right worker.
+  : > "$mail_dir/roster"
+  for i in "${!AGENT_NAMES[@]}"; do
+    echo "${AGENT_NAMES[$i]} — ${AGENT_NOTES[$i]:-no notes}" >> "$mail_dir/roster"
+  done
   # NOTE: named .agent-mail, not .agents — pi owns .agents/ (its skills dir).
   if [ -e "$wt_path/.agent-mail" ] && [ ! -L "$wt_path/.agent-mail" ]; then
     die ".agent-mail exists in the worktree and is not a symlink — move it aside"
   fi
   ln -sfn "$mail_dir" "$wt_path/.agent-mail"
-  # Hide agent dirs from git status across all worktrees of this repo.
+  # Worker protocol for AGENTS.md-reading tools (grok, pi), only if the repo
+  # doesn't track its own AGENTS.md.
+  if [ ! -e "$wt_path/AGENTS.md" ]; then
+    cp "$AGENT_ENV_DIR/templates/worker-agents-md.md" "$wt_path/AGENTS.md"
+  fi
+  # Push guard: blocks force-push/default-branch pushes from any worktree.
+  local hook="$common_dir/hooks/pre-push"
+  mkdir -p "$common_dir/hooks"
+  if [ -f "$hook" ] && ! grep -q "agent-env push guard" "$hook"; then
+    echo "wt: existing pre-push hook found — push guard NOT installed (merge $AGENT_ENV_DIR/hooks/pre-push-guard manually)" >&2
+  else
+    cp "$AGENT_ENV_DIR/hooks/pre-push-guard" "$hook" && chmod +x "$hook"
+  fi
+  # Hide agent files from git status across all worktrees of this repo.
   local exclude="$common_dir/info/exclude"
   mkdir -p "$(dirname "$exclude")"
-  for pat in .agent-mail .agents; do
+  for pat in .agent-mail .agents AGENTS.md .wt-agents; do
     grep -qxF "$pat" "$exclude" 2>/dev/null || echo "$pat" >> "$exclude"
   done
   echo "$mail_dir"
@@ -190,6 +243,7 @@ wt_start() {
   local session; session="$(session_name "$branch")"
   local wt_path="$worktrees_root/$branch"
 
+  load_roster
   maybe_update_tools
 
   # Already running? Make sure the doorbell is alive, then go there.
@@ -239,28 +293,47 @@ wt_start() {
   local port; port="$(find_free_port)"
 
   # Build the layout. Panes are addressed by immutable IDs, not indexes.
+  # Driver (first roster entry) top-left; workers stacked below it evenly.
   local cols=200 lines=50
   if [ -t 0 ]; then cols="$(tput cols)"; lines="$(tput lines)"; fi
-  local p_claude p_shell p_dev p_pi
-  p_claude="$(tmux new-session -d -P -F '#{pane_id}' -s "$session" -c "$wt_path" -x "$cols" -y "$lines")"
-  p_shell="$(tmux split-window -h -l '40%' -P -F '#{pane_id}' -t "$p_claude" -c "$wt_path")"
+  local p_driver p_shell p_dev prev pct k j i
+  p_driver="$(tmux new-session -d -P -F '#{pane_id}' -s "$session" -c "$wt_path" -x "$cols" -y "$lines")"
+  p_shell="$(tmux split-window -h -l '40%' -P -F '#{pane_id}' -t "$p_driver" -c "$wt_path")"
   p_dev="$(tmux split-window -v -l '50%' -P -F '#{pane_id}' -t "$p_shell" -c "$wt_path")"
-  p_pi="$(tmux split-window -v -l '40%' -P -F '#{pane_id}' -t "$p_claude" -c "$wt_path")"
 
-  printf 'claude=%s\npi=%s\n' "$p_claude" "$p_pi" > "$mail_dir/panes"
+  local agent_panes=("$p_driver")
+  k=$(( ${#AGENT_NAMES[@]} - 1 ))
+  if [ "$k" -gt 0 ]; then
+    case "$k" in 1) pct=40 ;; 2) pct=50 ;; *) pct=60 ;; esac
+    prev="$(tmux split-window -v -l "${pct}%" -P -F '#{pane_id}' -t "$p_driver" -c "$wt_path")"
+    agent_panes+=("$prev")
+    j=1
+    while [ "$j" -lt "$k" ]; do
+      pct=$(( 100 * (k - j) / (k - j + 1) ))
+      prev="$(tmux split-window -v -l "${pct}%" -P -F '#{pane_id}' -t "$prev" -c "$wt_path")"
+      agent_panes+=("$prev")
+      j=$((j + 1))
+    done
+  fi
+
+  : > "$mail_dir/panes"
+  for i in "${!AGENT_NAMES[@]}"; do
+    echo "${AGENT_NAMES[$i]}=${agent_panes[$i]}" >> "$mail_dir/panes"
+  done
   ensure_watcher "$session" "$mail_dir"
-
-  # Audit trail: log both agent panes (survives wt done, greppable later)
-  tmux pipe-pane -t "$p_claude" -o "cat >> '$mail_dir/logs/claude.log'"
-  tmux pipe-pane -t "$p_pi" -o "cat >> '$mail_dir/logs/pi.log'"
 
   local dev_cmd="echo '── dev server on http://localhost:$port ──'; "
   [ -n "$fresh" ] && dev_cmd+="$SETUP_CMD && "
   dev_cmd+="PORT=$port $DEV_CMD"
   tmux send-keys -t "$p_dev" "$dev_cmd" Enter
-  tmux send-keys -t "$p_claude" "$CLAUDE_CMD" Enter
-  tmux send-keys -t "$p_pi" "$PI_CMD" Enter
-  tmux select-pane -t "$p_claude"
+
+  # Each agent pane: identity + prod-CLI shims on PATH, logged, then launch.
+  for i in "${!AGENT_NAMES[@]}"; do
+    tmux pipe-pane -t "${agent_panes[$i]}" -o "cat >> '$mail_dir/logs/${AGENT_NAMES[$i]}.log'"
+    tmux send-keys -t "${agent_panes[$i]}" \
+      "export AGENT_MAIL_FROM=${AGENT_NAMES[$i]} PATH=\"$AGENT_ENV_DIR/shims:\$PATH\"; ${AGENT_CMDS[$i]}" Enter
+  done
+  tmux select-pane -t "$p_driver"
 
   exec_attach "$session"
 }

@@ -1,0 +1,34 @@
+#!/usr/bin/env bash
+#
+# prod-cli-shim — agent-env guard for production CLIs.
+#
+# wt prepends the shims/ dir to PATH in every agent pane, so any agent
+# (claude, pi, grok, ...) that runs kamal/heroku/railway/fly hits this first.
+# The real command only runs with an active agent-mail grant. The shim is
+# named per-tool via symlinks (kamal -> prod-cli-shim, etc.).
+#
+set -uo pipefail
+
+tool="$(basename "$0")"
+shim_dir="$(cd "$(dirname "$0")" && pwd)"
+
+# Locate the real binary with the shim dir stripped from PATH
+clean_path="$(printf '%s' "$PATH" | tr ':' '\n' | grep -vFx "$shim_dir" | paste -sd: -)"
+real="$(PATH="$clean_path" command -v "$tool" || true)"
+
+scope="prod-read"
+case "$tool ${1:-} ${2:-}" in
+  "kamal deploy"*|"kamal redeploy"*|"kamal rollback"*|"kamal app boot"*|"kamal env push"*) scope="prod-write" ;;
+  "heroku config:set"*|"heroku pipelines:promote"*|"heroku run"*) scope="prod-write" ;;
+  "railway up"*) scope="prod-write" ;;
+  "fly deploy"*|"flyctl deploy"*) scope="prod-write" ;;
+esac
+
+if ! command -v agent-mail >/dev/null || ! agent-mail check-grant "$scope" 2>/dev/null; then
+  echo "wt-guard: '$tool' needs an active '$scope' grant in this session." >&2
+  echo "Request approval: agent-mail request $scope \"<one-line reason>\" — the user approves with: agent-mail grant $scope" >&2
+  exit 1
+fi
+
+[ -n "$real" ] || { echo "$tool: not installed" >&2; exit 127; }
+exec "$real" "$@"
