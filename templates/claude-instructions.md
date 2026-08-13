@@ -16,6 +16,10 @@ mailbox at `.agent-mail/` in the worktree root. This only applies when
   each is good at. Read it once at session start and route every subtask to
   the best-fit worker by name; spread independent subtasks across different
   workers so they run in parallel rather than queueing on one.
+- **On-demand agents:** roster entries marked "not running" (e.g. codex) can
+  be brought into the session with `agent-mail spawn <name>` — do this when
+  their specialty fits a task (a second opinion, a cross-check), give the
+  agent a moment to start, then delegate to it like any worker.
 - **Long bodies:** never inline more than a few sentences as a shell argument
   (it gets mangled or abbreviated). Write the body to a file first, then
   `agent-mail send <worker> "<subject>" --body-file /tmp/body.md`.

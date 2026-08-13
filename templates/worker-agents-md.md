@@ -17,6 +17,9 @@ global CLAUDE.md — the rest of this file addresses worker agents.)
   write the body to a file, then `agent-mail send claude "<subject>"
   --body-file /tmp/body.md`.
 - Ask the human directly when needed: `agent-mail send user "<subject>" "<question>"`.
+- Any agent can summon another: `agent-mail spawn <name>` (names in
+  `.agent-mail/roster`) opens it in a new window, wired into this mailbox —
+  useful when a task deserves a cross-check by a different model.
 
 ## Rules
 

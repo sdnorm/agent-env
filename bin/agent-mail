@@ -9,6 +9,8 @@
 #   agent-mail inbox <claude|pi|user>           List unhandled messages
 #   agent-mail read <file>                      Print a message
 #   agent-mail done <file>                      Mark a message handled (moves to done/)
+#   agent-mail spawn <agent>                    Launch a roster agent in a new tmux window
+#                                               (any agent can summon any other; see roster)
 #
 # Approval gate (used by the credential-guard hook):
 #   agent-mail request <scope> <reason ...>     Agent asks the human for a grant (message to user)
@@ -175,7 +177,49 @@ case "$cmd" in
     echo "watcher resumed — un-notified messages will be nudged on the next poll"
     ;;
 
+  spawn)
+    [ $# -ge 2 ] || die "usage: agent-mail spawn <agent>"
+    name="$2"
+    mailbox="$(find_mailbox)"
+    mail_dir="$(cd "$mailbox" && pwd -P)"
+    session="$(basename "$mail_dir")"
+    wt_root="$(dirname "$mailbox")"
+    tmux has-session -t "=$session" 2>/dev/null || die "no tmux session '$session' to spawn into"
+    if grep -q "^$name=" "$mail_dir/panes" 2>/dev/null; then
+      pane="$(sed -n "s/^$name=//p" "$mail_dir/panes" | head -1)"
+      if tmux list-panes -a -F '#{pane_id}' 2>/dev/null | grep -qx "$pane"; then
+        echo "'$name' is already running — message it with: agent-mail send $name ..."
+        exit 0
+      fi
+      # stale entry (window was closed) — drop it and respawn
+      grep -v "^$name=" "$mail_dir/panes" > "$mail_dir/panes.tmp" && mv "$mail_dir/panes.tmp" "$mail_dir/panes"
+    fi
+
+    # Resolve the agent-env dir (this script is symlinked into ~/.local/bin)
+    script_path="$0"
+    while [ -L "$script_path" ]; do script_path="$(readlink "$script_path")"; done
+    agent_env_dir="$(cd "$(dirname "$script_path")/.." && pwd)"
+    # Roster: per-repo .wt-agents beats the global agents.conf
+    main_checkout="$(dirname "$(git -C "$wt_root" rev-parse --path-format=absolute --git-common-dir)")"
+    conf="$agent_env_dir/agents.conf"
+    [ -f "$main_checkout/.wt-agents" ] && conf="$main_checkout/.wt-agents"
+    roster_line="$(grep -E "^[[:space:]]*$name[[:space:]]*\|" "$conf" | head -1)"
+    [ -n "$roster_line" ] || die "'$name' is not in the roster ($conf)"
+    cmd="$(echo "$roster_line" | cut -d'|' -f2 | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+    notes="$(echo "$roster_line" | cut -d'|' -f3 | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+    command -v "${cmd%% *}" >/dev/null || die "'$name' command not installed: ${cmd%% *}"
+
+    mkdir -p "$mail_dir/inbox-$name/done" "$mail_dir/logs"
+    pane="$(tmux new-window -P -F '#{pane_id}' -d -t "=$session" -n "$name" -c "$wt_root")"
+    echo "$name=$pane" >> "$mail_dir/panes"
+    tmux set-option -w -t "=$session:$name" monitor-activity on 2>/dev/null || true
+    tmux pipe-pane -t "$pane" -o "cat >> '$mail_dir/logs/$name.log'"
+    tmux send-keys -t "$pane" "export AGENT_MAIL_FROM=$name PATH=\"$agent_env_dir/shims:\$PATH\"; $cmd" Enter
+    grep -q "^$name " "$mail_dir/roster" 2>/dev/null || echo "$name — ${notes:-no notes} (spawned)" >> "$mail_dir/roster"
+    echo "spawned '$name' in a new window — give it a moment to start, then: agent-mail send $name \"<subject>\" \"<body>\""
+    ;;
+
   *)
-    die "usage: agent-mail send|inbox|read|done|request|grant|check-grant|revoke|resume (see script header)"
+    die "usage: agent-mail send|inbox|read|done|spawn|request|grant|check-grant|revoke|resume (see script header)"
     ;;
 esac

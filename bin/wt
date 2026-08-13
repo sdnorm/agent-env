@@ -42,8 +42,9 @@ AGENT_ENV_DIR="$(cd "$(dirname "$script_path")/.." && pwd)"
 # --- Agent roster -----------------------------------------------------------
 
 AGENT_NAMES=(); AGENT_CMDS=(); AGENT_NOTES=()
+BENCH_NAMES=(); BENCH_NOTES=()
 load_roster() {
-  local conf line name cmd notes upper override
+  local conf line name cmd notes mode upper override
   if [ -f "$main_checkout/.wt-agents" ]; then
     conf="$main_checkout/.wt-agents"
   else
@@ -53,8 +54,13 @@ load_roster() {
     case "$line" in ''|\#*) continue ;; esac
     name="$(echo "$line" | cut -d'|' -f1 | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
     cmd="$(echo "$line" | cut -d'|' -f2 | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
-    notes="$(echo "$line" | cut -d'|' -f3- | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+    notes="$(echo "$line" | cut -d'|' -f3 | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+    mode="$(echo "$line" | cut -d'|' -f4 | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
     [ -n "$name" ] && [ -n "$cmd" ] || continue
+    if [ "$mode" = "demand" ]; then
+      BENCH_NAMES+=("$name"); BENCH_NOTES+=("$notes")
+      continue
+    fi
     upper="$(echo "$name" | tr '[:lower:]-' '[:upper:]_')"
     override="$(eval echo "\${WT_${upper}_CMD:-}")"
     [ -n "$override" ] && cmd="$override"
@@ -136,6 +142,11 @@ setup_mailbox() {
   for i in "${!AGENT_NAMES[@]}"; do
     echo "${AGENT_NAMES[$i]} — ${AGENT_NOTES[$i]:-no notes}" >> "$mail_dir/roster"
   done
+  if [ "${#BENCH_NAMES[@]}" -gt 0 ]; then
+    for i in "${!BENCH_NAMES[@]}"; do
+      echo "${BENCH_NAMES[$i]} — ${BENCH_NOTES[$i]:-no notes} (not running; start with: agent-mail spawn ${BENCH_NAMES[$i]})" >> "$mail_dir/roster"
+    done
+  fi
   # NOTE: named .agent-mail, not .agents — pi owns .agents/ (its skills dir).
   if [ -e "$wt_path/.agent-mail" ] && [ ! -L "$wt_path/.agent-mail" ]; then
     die ".agent-mail exists in the worktree and is not a symlink — move it aside"
