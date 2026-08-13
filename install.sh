@@ -16,6 +16,7 @@ done
 for dep in claude pi ollama; do
   command -v "$dep" >/dev/null || echo "WARN: '$dep' not found — install and authenticate it before using wt"
 done
+command -v grok >/dev/null || echo "WARN: 'grok' not found — install: curl -fsSL https://x.ai/cli/install.sh | bash (auth: browser on first run, or XAI_API_KEY headless)"
 for dep in basecamp fizzy; do
   command -v "$dep" >/dev/null || echo "NOTE: '$dep' CLI not found — agents can't reach it until installed and authed (basecamp: 'auth login --device-code'; fizzy: 'auth login')"
 done

@@ -19,6 +19,7 @@ Agent CLIs (install.sh warns; needed before the panes are useful):
 | claude | top-left pane | `npm install -g @anthropic-ai/claude-code` | `claude` (login flow) |
 | [pi](https://pi.dev/) | bottom-left pane | `bun add -g --ignore-scripts @earendil-works/pi-coding-agent` | uses ollama (see below) |
 | ollama | runs pi's Kimi model | [ollama.com/download](https://ollama.com/download) or `curl -fsSL https://ollama.com/install.sh \| sh` | `ollama signin` (cloud models) |
+| [grok](https://docs.x.ai/build/overview) | third agent pane (grok build) | `curl -fsSL https://x.ai/cli/install.sh \| bash` | browser on first `grok` run; headless: `XAI_API_KEY` env (needs SuperGrok/X Premium+; beta — install/auth may change) |
 | qmd | mail-history search | `npm install -g @tobilu/qmd` (npm, **not bun** — see below) | none |
 
 Runtimes and support tools:
