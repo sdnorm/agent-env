@@ -16,6 +16,9 @@ done
 for dep in claude pi ollama; do
   command -v "$dep" >/dev/null || echo "WARN: '$dep' not found — install and authenticate it before using wt"
 done
+for dep in basecamp fizzy; do
+  command -v "$dep" >/dev/null || echo "NOTE: '$dep' CLI not found — agents can't reach it until installed and authed (basecamp: 'auth login --device-code'; fizzy: 'auth login')"
+done
 command -v lsof >/dev/null || command -v ss >/dev/null || echo "WARN: neither lsof nor ss found — port detection will fall back to nc"
 
 # Scripts -> ~/.local/bin
