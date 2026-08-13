@@ -64,7 +64,16 @@ wt my-branch          # create branch/worktree + tmux session, attach
 wt done [my-branch]   # kill session, remove worktree (keeps branch; --force if dirty)
 ```
 
-Layout per session — the driver (first roster entry) top-left, workers stacked
+Two layouts, chosen with `WT_LAYOUT` (env or `.wt-config`):
+
+- **`panes`** (default) — everything visible in one window, diagram below.
+- **`windows`** — one full-screen window per agent plus `shell` and `dev`
+  windows; switch with `Alt+1..5` or `Ctrl-b n/p`. Agent windows highlight
+  (bold underline) in the status bar when output appears, so you see a worker
+  finish without watching it. Best on small screens; coordination is
+  identical — the watcher nudges panes whether visible or not.
+
+The `panes` layout — the driver (first roster entry) top-left, workers stacked
 below it, scratch shell top-right, `bin/dev` on a free port bottom-right:
 
 ```

@@ -32,6 +32,7 @@ MAIL_ROOT="${WT_MAIL_ROOT:-$HOME/.agents-mail}"
 # Exported env always beats .wt-config; remember what the caller set.
 env_dev_cmd="${WT_DEV_CMD:-}"
 env_setup_cmd="${WT_SETUP_CMD:-}"
+env_layout="${WT_LAYOUT:-}"
 
 # Resolve the agent-env repo dir (wt is symlinked into ~/.local/bin)
 script_path="${BASH_SOURCE[0]}"
@@ -82,6 +83,7 @@ DEV_CMD="${env_dev_cmd:-${WT_DEV_CMD:-bin/dev}}"       # runs with PORT set
 SETUP_CMD="${env_setup_cmd:-${WT_SETUP_CMD:-bin/setup}}" # once, fresh worktrees
 COPY_PATTERNS="${WT_COPY_PATTERNS:-.env .env.* config/master.key config/credentials/*.key}"
 PORT_BASE="${WT_PORT_BASE:-3000}"
+LAYOUT="${env_layout:-${WT_LAYOUT:-panes}}"   # panes (grid) | windows (one per agent)
 
 session_name() {
   # tmux session names may not contain '.' or ':'
@@ -311,27 +313,46 @@ wt_start() {
   local port; port="$(find_free_port)"
 
   # Build the layout. Panes are addressed by immutable IDs, not indexes.
-  # Driver (first roster entry) top-left; workers stacked below it evenly.
   local cols=200 lines=50
   if [ -t 0 ]; then cols="$(tput cols)"; lines="$(tput lines)"; fi
   local p_driver p_shell p_dev prev pct k j i
-  p_driver="$(tmux new-session -d -P -F '#{pane_id}' -s "$session" -c "$wt_path" -x "$cols" -y "$lines")"
-  p_shell="$(tmux split-window -h -l '40%' -P -F '#{pane_id}' -t "$p_driver" -c "$wt_path")"
-  p_dev="$(tmux split-window -v -l '50%' -P -F '#{pane_id}' -t "$p_shell" -c "$wt_path")"
+  local agent_panes=()
 
-  local agent_panes=("$p_driver")
-  k=$(( ${#AGENT_NAMES[@]} - 1 ))
-  if [ "$k" -gt 0 ]; then
-    case "$k" in 1) pct=40 ;; 2) pct=50 ;; *) pct=60 ;; esac
-    prev="$(tmux split-window -v -l "${pct}%" -P -F '#{pane_id}' -t "$p_driver" -c "$wt_path")"
-    agent_panes+=("$prev")
-    j=1
-    while [ "$j" -lt "$k" ]; do
-      pct=$(( 100 * (k - j) / (k - j + 1) ))
-      prev="$(tmux split-window -v -l "${pct}%" -P -F '#{pane_id}' -t "$prev" -c "$wt_path")"
-      agent_panes+=("$prev")
-      j=$((j + 1))
+  if [ "$LAYOUT" = "windows" ]; then
+    # One full-screen window per agent (named), plus shell and dev windows.
+    # Agent windows highlight in the status bar when output appears.
+    p_driver="$(tmux new-session -d -P -F '#{pane_id}' -s "$session" -n "${AGENT_NAMES[0]}" -c "$wt_path" -x "$cols" -y "$lines")"
+    agent_panes+=("$p_driver")
+    for i in "${!AGENT_NAMES[@]}"; do
+      [ "$i" -eq 0 ] && continue
+      agent_panes+=("$(tmux new-window -P -F '#{pane_id}' -t "=$session" -n "${AGENT_NAMES[$i]}" -c "$wt_path")")
     done
+    p_shell="$(tmux new-window -P -F '#{pane_id}' -t "=$session" -n shell -c "$wt_path")"
+    p_dev="$(tmux new-window -P -F '#{pane_id}' -t "=$session" -n dev -c "$wt_path")"
+    for i in "${!AGENT_NAMES[@]}"; do
+      tmux set-option -w -t "=$session:${AGENT_NAMES[$i]}" monitor-activity on
+    done
+    tmux select-window -t "=$session:${AGENT_NAMES[0]}"
+  else
+    # Grid: driver (first roster entry) top-left; workers stacked below it.
+    p_driver="$(tmux new-session -d -P -F '#{pane_id}' -s "$session" -c "$wt_path" -x "$cols" -y "$lines")"
+    p_shell="$(tmux split-window -h -l '40%' -P -F '#{pane_id}' -t "$p_driver" -c "$wt_path")"
+    p_dev="$(tmux split-window -v -l '50%' -P -F '#{pane_id}' -t "$p_shell" -c "$wt_path")"
+
+    agent_panes=("$p_driver")
+    k=$(( ${#AGENT_NAMES[@]} - 1 ))
+    if [ "$k" -gt 0 ]; then
+      case "$k" in 1) pct=40 ;; 2) pct=50 ;; *) pct=60 ;; esac
+      prev="$(tmux split-window -v -l "${pct}%" -P -F '#{pane_id}' -t "$p_driver" -c "$wt_path")"
+      agent_panes+=("$prev")
+      j=1
+      while [ "$j" -lt "$k" ]; do
+        pct=$(( 100 * (k - j) / (k - j + 1) ))
+        prev="$(tmux split-window -v -l "${pct}%" -P -F '#{pane_id}' -t "$prev" -c "$wt_path")"
+        agent_panes+=("$prev")
+        j=$((j + 1))
+      done
+    fi
   fi
 
   : > "$mail_dir/panes"
