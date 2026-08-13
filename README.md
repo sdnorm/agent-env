@@ -123,7 +123,7 @@ Env overrides: `WT_CLAUDE_CMD`, `WT_PI_CMD` (pane commands), `WT_DEV_CMD`,
 ## Other languages & frameworks (.wt-config)
 
 Defaults are Rails, but every stack-specific behavior is declared per-repo in
-a `.wt-config` file (plain shell, auto-hidden from git) in the main checkout:
+a `.wt-config` file (plain shell) in the main checkout — commit it (`wt init <stack>` stamps and stages one from `examples/`) so it travels to every machine, or leave it uncommitted for machine-local tweaks (wt git-hides it when untracked):
 
 ```sh
 # .wt-config for a Node/Vite app

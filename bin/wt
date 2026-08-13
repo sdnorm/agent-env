@@ -5,6 +5,7 @@
 # Usage:
 #   wt <branch>                Create/attach a worktree session for <branch>
 #   wt done [branch] [--force] Kill the session and remove the worktree
+#   wt init <rails|node|django> Stamp a committable .wt-config into this repo
 #
 # Layout (driver = first roster entry, workers stacked below):
 #   ┌──────────────┬──────────────┐
@@ -365,11 +366,25 @@ exec_attach() {
   fi
 }
 
+# --- wt init ----------------------------------------------------------------
+
+wt_init() {
+  local stack="${1:-}"
+  local example="$AGENT_ENV_DIR/examples/wt-config.$stack"
+  [ -n "$stack" ] && [ -f "$example" ] || die "usage: wt init <rails|node|django> (templates in $AGENT_ENV_DIR/examples/)"
+  [ -e "$main_checkout/.wt-config" ] && die ".wt-config already exists in $main_checkout"
+  cp "$example" "$main_checkout/.wt-config"
+  git -C "$main_checkout" add -f .wt-config
+  echo "staged $main_checkout/.wt-config ($stack) — commit it so it travels:"
+  echo "  git -C $main_checkout commit -m 'Add .wt-config' -- .wt-config"
+}
+
 # --- Dispatch ---------------------------------------------------------------
 
-[ $# -ge 1 ] || die "usage: wt <branch> | wt done [branch] [--force]"
+[ $# -ge 1 ] || die "usage: wt <branch> | wt done [branch] [--force] | wt init <stack>"
 
 case "$1" in
   done) shift; wt_done "$@" ;;
+  init) shift; wt_init "$@" ;;
   *)    wt_start "$1" ;;
 esac

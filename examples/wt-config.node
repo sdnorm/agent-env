@@ -1,0 +1,5 @@
+# wt stack config (Node/Vite)
+WT_DEV_CMD="npm run dev"
+WT_SETUP_CMD="npm install"
+WT_COPY_PATTERNS=".env .env.local"
+WT_PORT_BASE=5173

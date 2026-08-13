@@ -1,0 +1,5 @@
+# wt stack config (Django)
+WT_DEV_CMD="python manage.py runserver 0.0.0.0:$PORT"
+WT_SETUP_CMD="pip install -r requirements.txt && python manage.py migrate"
+WT_COPY_PATTERNS=".env local_settings.py"
+WT_PORT_BASE=8000
