@@ -93,7 +93,11 @@ first entry is the driver. Override per-repo with a `.wt-agents` file in the
 main checkout, or per-session with `WT_<NAME>_CMD`. Each pane gets
 `AGENT_MAIL_FROM=<name>` exported so `agent-mail` knows the sender. `wt`
 writes the roster (names + strengths) to `.agent-mail/roster`, which the
-driver reads to route each subtask to the best-fit worker. Workers that read
+driver reads to route each subtask to the best-fit worker. Entries with mode
+`demand` (4th field, e.g. codex) aren't launched at session start — any agent
+summons one into a new window with `agent-mail spawn <name>`, fully wired
+into the mailbox, and any agent can then delegate to it (claude→codex,
+pi→grok, any direction). Workers that read
 `AGENTS.md` (grok, pi) get the protocol from a generated worktree `AGENTS.md`
 (only created when the repo doesn't track its own).
 
