@@ -181,7 +181,10 @@ maybe_update_tools() {
   local stamp="$MAIL_ROOT/.tools-update-stamp"
   if [ -f "$stamp" ]; then
     local mtime
-    mtime="$(stat -f %m "$stamp" 2>/dev/null || stat -c %Y "$stamp" 2>/dev/null)" || return 0
+    # GNU stat first (-c); BSD/macOS fallback (-f). Order matters: GNU's -f
+    # "succeeds" with filesystem info and would poison the arithmetic below.
+    mtime="$(stat -c %Y "$stamp" 2>/dev/null || stat -f %m "$stamp" 2>/dev/null)" || return 0
+    case "$mtime" in *[!0-9]*) return 0 ;; esac
     [ $(( $(date +%s) - mtime )) -lt 604800 ] && return 0
   fi
   mkdir -p "$MAIL_ROOT"
