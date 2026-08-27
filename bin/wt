@@ -265,8 +265,8 @@ wt_done() {
   echo "mail history kept at $MAIL_ROOT/$session"
 
   if command -v qmd >/dev/null; then
-    (qmd update >/dev/null 2>&1 &)
-    echo "qmd re-indexing mail history in background"
+    ( { qmd update; qmd embed; } >/dev/null 2>&1 &)
+    echo "qmd re-indexing + embedding mail history in background"
   fi
 }
 
