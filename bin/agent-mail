@@ -184,6 +184,10 @@ case "$cmd" in
     mail_dir="$(cd "$mailbox" && pwd -P)"
     session="$(basename "$mail_dir")"
     wt_root="$(dirname "$mailbox")"
+    if [ -f "$mail_dir/herdr-workspace" ]; then
+      # herdr session (wt herdr): agents live in herdr tabs, and wt owns that.
+      cd "$wt_root" && exec wt herdr "$name"
+    fi
     tmux has-session -t "=$session" 2>/dev/null || die "no tmux session '$session' to spawn into"
     if grep -q "^$name=" "$mail_dir/panes" 2>/dev/null; then
       pane="$(sed -n "s/^$name=//p" "$mail_dir/panes" | head -1)"

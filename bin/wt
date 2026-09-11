@@ -5,6 +5,8 @@
 # Usage:
 #   wt <branch>                Create/attach a worktree session for <branch>
 #   wt done [branch] [--force] Kill the session and remove the worktree
+#   wt herdr [agent...]        Inside a herdr worktree: wire the mailbox and open
+#                              the roster agents as herdr tabs (no tmux)
 #   wt init <rails|node|django> Stamp a committable .wt-config into this repo
 #
 # Layout (driver = first roster entry, workers stacked below):
@@ -42,7 +44,7 @@ AGENT_ENV_DIR="$(cd "$(dirname "$script_path")/.." && pwd)"
 # --- Agent roster -----------------------------------------------------------
 
 AGENT_NAMES=(); AGENT_CMDS=(); AGENT_NOTES=()
-BENCH_NAMES=(); BENCH_NOTES=()
+BENCH_NAMES=(); BENCH_CMDS=(); BENCH_NOTES=()
 load_roster() {
   local conf line name cmd notes mode upper override
   if [ -f "$main_checkout/.wt-agents" ]; then
@@ -58,7 +60,7 @@ load_roster() {
     mode="$(echo "$line" | cut -d'|' -f4 | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
     [ -n "$name" ] && [ -n "$cmd" ] || continue
     if [ "$mode" = "demand" ]; then
-      BENCH_NAMES+=("$name"); BENCH_NOTES+=("$notes")
+      BENCH_NAMES+=("$name"); BENCH_CMDS+=("$cmd"); BENCH_NOTES+=("$notes")
       continue
     fi
     upper="$(echo "$name" | tr '[:lower:]-' '[:upper:]_')"
@@ -133,7 +135,7 @@ find_free_port() {
 setup_mailbox() {
   local session="$1" wt_path="$2"
   local mail_dir="$MAIL_ROOT/$session" name i
-  for name in "${AGENT_NAMES[@]}" user; do
+  for name in "${AGENT_NAMES[@]}" "${BENCH_NAMES[@]}" user; do
     mkdir -p "$mail_dir/inbox-$name/done"
   done
   mkdir -p "$mail_dir/logs" "$mail_dir/grants"
@@ -277,6 +279,8 @@ wt_start() {
   local session; session="$(session_name "$branch")"
   local wt_path="$worktrees_root/$branch"
 
+  [ "${HERDR_ENV:-}" = 1 ] && echo "wt: you are inside herdr — 'wt herdr' uses herdr tabs instead of a nested tmux" >&2
+
   load_roster
   maybe_update_tools
 
@@ -401,6 +405,93 @@ exec_attach() {
   fi
 }
 
+# --- wt herdr ---------------------------------------------------------------
+# Same protocol, herdr tabs instead of tmux panes. Run from the driver's pane
+# inside a herdr worktree (HERDR_ENV=1); the current checkout is the worktree,
+# so herdr owns worktree creation/removal and wt only wires up the agents.
+#   wt herdr             launch every auto-mode roster agent (skips ones already up)
+#   wt herdr <name>...   launch exactly these roster agents (demand ones too)
+
+herdr_pane_id() {
+  # First "pane_id" in a herdr JSON reply (tab create lists root_pane first).
+  grep -o '"pane_id":"[^"]*"' | head -1 | cut -d'"' -f4
+}
+
+set_pane() {
+  local mail_dir="$1" name="$2" pane="$3"
+  { grep -v "^$name=" "$mail_dir/panes" 2>/dev/null || true; echo "$name=$pane"; } > "$mail_dir/panes.tmp"
+  mv "$mail_dir/panes.tmp" "$mail_dir/panes"
+}
+
+wt_herdr() {
+  [ "${HERDR_ENV:-}" = 1 ] && [ -n "${HERDR_WORKSPACE_ID:-}" ] || die "wt herdr runs inside a herdr pane (HERDR_ENV=1)"
+  command -v herdr >/dev/null || die "herdr is not installed"
+
+  local wt_path branch session
+  wt_path="$(git rev-parse --show-toplevel)"
+  [ "$wt_path" != "$main_checkout" ] || die "run wt herdr from a herdr worktree, not the main checkout"
+  branch="$(git rev-parse --abbrev-ref HEAD)"
+  session="$(session_name "$branch")"
+
+  load_roster
+  maybe_update_tools
+
+  # Which agents: explicit names (auto or demand), else every auto worker.
+  local names=() cmds=() i name found driver="${AGENT_NAMES[0]}"
+  if [ $# -gt 0 ]; then
+    for name in "$@"; do
+      [ "$name" = "$driver" ] && { echo "wt: '$driver' is the driver — that's this pane"; continue; }
+      found=""
+      for i in "${!AGENT_NAMES[@]}"; do
+        [ "${AGENT_NAMES[$i]}" = "$name" ] && { names+=("$name"); cmds+=("${AGENT_CMDS[$i]}"); found=1; }
+      done
+      for i in "${!BENCH_NAMES[@]}"; do
+        [ "${BENCH_NAMES[$i]}" = "$name" ] && { names+=("$name"); cmds+=("${BENCH_CMDS[$i]}"); found=1; }
+      done
+      [ -n "$found" ] || die "'$name' is not in the roster"
+    done
+  else
+    for i in "${!AGENT_NAMES[@]}"; do
+      [ "$i" -eq 0 ] && continue
+      names+=("${AGENT_NAMES[$i]}"); cmds+=("${AGENT_CMDS[$i]}")
+    done
+  fi
+
+  local mail_dir; mail_dir="$(setup_mailbox "$session" "$wt_path")"
+  echo "$HERDR_WORKSPACE_ID" > "$mail_dir/herdr-workspace"
+  touch "$mail_dir/panes"
+  set_pane "$mail_dir" "$driver" "$HERDR_PANE_ID"
+
+  local pane cmd
+  for i in "${!names[@]}"; do
+    name="${names[$i]}"; cmd="${cmds[$i]}"
+    pane="$(sed -n "s/^$name=//p" "$mail_dir/panes" | head -1)"
+    if [ -n "$pane" ] && herdr pane get "$pane" >/dev/null 2>&1; then
+      if herdr agent get "$pane" >/dev/null 2>&1; then
+        echo "$name: already running in $pane"
+        continue
+      fi
+      echo "$name: relaunching in $pane"
+    else
+      pane="$(herdr tab create --workspace "$HERDR_WORKSPACE_ID" --cwd "$wt_path" --label "$name" \
+        --env "AGENT_MAIL_FROM=$name" --env "PATH=$AGENT_ENV_DIR/shims:$PATH" --no-focus | herdr_pane_id)"
+      [ -n "$pane" ] || die "herdr could not create a tab for $name"
+      set_pane "$mail_dir" "$name" "$pane"
+      echo "$name: tab $pane"
+    fi
+    herdr pane run "$pane" "$cmd" >/dev/null
+    # ollama launch pauses on a model picker with the roster model preselected.
+    case "$cmd" in ollama\ launch*)
+      herdr pane wait-output --source visible --match 'Enter to select' --timeout 20000 "$pane" >/dev/null 2>&1 \
+        && herdr pane send-keys "$pane" enter >/dev/null ;;
+    esac
+  done
+
+  ensure_watcher "$HERDR_WORKSPACE_ID" "$mail_dir"
+  echo "mailbox: $wt_path/.agent-mail  (history in $mail_dir)"
+  echo "message a worker with: agent-mail send <name> \"<subject>\" \"<body>\""
+}
+
 # --- wt init ----------------------------------------------------------------
 
 wt_init() {
@@ -416,10 +507,11 @@ wt_init() {
 
 # --- Dispatch ---------------------------------------------------------------
 
-[ $# -ge 1 ] || die "usage: wt <branch> | wt done [branch] [--force] | wt init <stack>"
+[ $# -ge 1 ] || die "usage: wt <branch> | wt done [branch] [--force] | wt herdr [agent...] | wt init <stack>"
 
 case "$1" in
-  done) shift; wt_done "$@" ;;
-  init) shift; wt_init "$@" ;;
+  done)  shift; wt_done "$@" ;;
+  herdr) shift; wt_herdr "$@" ;;
+  init)  shift; wt_init "$@" ;;
   *)    wt_start "$1" ;;
 esac

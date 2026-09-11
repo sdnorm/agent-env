@@ -1,14 +1,15 @@
 #!/usr/bin/env bash
 # agent-env push guard — installed by wt into <repo>/.git/hooks/pre-push.
 #
-# Enforced ONLY inside *-worktrees/ checkouts (any agent, any tool): blocks
-# pushes to the default branch, branch deletions, and non-fast-forward (force)
-# pushes. The main checkout — where the human works — is untouched.
+# Enforced ONLY inside worktree checkouts — wt's *-worktrees/ and herdr's
+# ~/.herdr/worktrees/ — for any agent, any tool: blocks pushes to the default
+# branch, branch deletions, and non-fast-forward (force) pushes. The main
+# checkout — where the human works — is untouched.
 # Human override: WT_ALLOW_PUSH=1 git push ...
 set -uo pipefail
 
 top="$(git rev-parse --show-toplevel 2>/dev/null)" || exit 0
-case "$top" in *-worktrees/*) ;; *) exit 0 ;; esac
+case "$top" in *-worktrees/*|*/.herdr/worktrees/*) ;; *) exit 0 ;; esac
 [ -n "${WT_ALLOW_PUSH:-}" ] && exit 0
 
 zero="0000000000000000000000000000000000000000"

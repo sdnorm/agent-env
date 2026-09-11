@@ -1,14 +1,15 @@
 #!/usr/bin/env bash
 #
 # agent-mail-watch — the doorbell. Watches a session's inboxes and nudges the
-# matching tmux pane when a new message arrives. Started by wt, exits on its
-# own when the tmux session dies.
+# matching pane when a new message arrives. Started by wt, exits on its own
+# when the session dies.
 #
-# Usage: agent-mail-watch <tmux-session> <mailbox-dir>
+# Usage: agent-mail-watch <tmux-session | herdr-workspace-id> <mailbox-dir>
 #
 # Expects <mailbox-dir>/panes to contain lines like:
-#   claude=%1
-#   pi=%3
+#   claude=%1          (tmux, from `wt <branch>`)
+#   pi=wG:p3           (herdr, from `wt herdr`)
+# A <mailbox-dir>/herdr-workspace marker file selects the herdr backend.
 #
 set -uo pipefail
 
@@ -18,6 +19,17 @@ mailbox="$2"
 notified="$mailbox/.notified"
 nudge_log="$mailbox/.nudge-log"
 touch "$notified" "$nudge_log"
+
+herdr_mode=""
+[ -f "$mailbox/herdr-workspace" ] && herdr_mode=1
+
+session_alive() {
+  if [ -n "$herdr_mode" ]; then
+    herdr workspace get "$session" >/dev/null 2>&1
+  else
+    tmux has-session -t "=$session" 2>/dev/null
+  fi
+}
 
 # Circuit breaker: too many agent-to-agent nudges = runaway loop. Trips into
 # a paused state that a human clears with `agent-mail resume`.
@@ -47,24 +59,37 @@ trip_breaker() {
     echo "Nudging is paused ($BURST_MAX+/10min or $HOURLY_MAX+/hour agent-to-agent messages)."
     echo "Inspect the inboxes, then run 'agent-mail resume' in the worktree to continue."
   } > "$mailbox/inbox-user/$(date +%Y%m%d-%H%M%S)-breaker-tripped.md"
-  tmux display-message -t "=$session" "agent-mail: circuit breaker tripped — nudging paused (agent-mail resume)" 2>/dev/null || true
+  if [ -n "$herdr_mode" ]; then
+    herdr notification show "agent-mail: circuit breaker tripped" --body "nudging paused — run: agent-mail resume" --sound request >/dev/null 2>&1 || true
+  else
+    tmux display-message -t "=$session" "agent-mail: circuit breaker tripped — nudging paused (agent-mail resume)" 2>/dev/null || true
+  fi
 }
 
 pane_for() {
   sed -n "s/^$1=//p" "$mailbox/panes" | head -1
 }
 
+# Returns non-zero only when the nudge should be retried on the next tick.
 nudge() {
-  local agent="$1" file="$2" pane
+  local agent="$1" file="$2" pane msg
   pane="$(pane_for "$agent")"
   [ -n "$pane" ] || return 0
+  msg="[agent-mail] New message for you: $file — read it with 'agent-mail read $file', act on it, reply with 'agent-mail send', and mark it handled with 'agent-mail done $file'."
+  if [ -n "$herdr_mode" ]; then
+    # `agent prompt` submits to the agent in that pane and refuses while it is
+    # blocked on an approval dialog — better to retry later than type into it.
+    herdr agent prompt "$pane" "$msg" >/dev/null 2>&1
+    return
+  fi
   # -l sends the text literally; Enter goes separately so TUIs treat it as submit.
-  tmux send-keys -t "$pane" -l "[agent-mail] New message for you: $file — read it with 'agent-mail read $file', act on it, reply with 'agent-mail send', and mark it handled with 'agent-mail done $file'." 2>/dev/null
+  tmux send-keys -t "$pane" -l "$msg" 2>/dev/null
   sleep 0.3
   tmux send-keys -t "$pane" Enter 2>/dev/null
+  return 0
 }
 
-while tmux has-session -t "=$session" 2>/dev/null; do
+while session_alive; do
   if [ ! -f "$mailbox/.paused" ]; then
     for agent in $(cut -d= -f1 "$mailbox/panes" 2>/dev/null); do
       for f in "$mailbox/inbox-$agent"/*.md; do
@@ -74,7 +99,7 @@ while tmux has-session -t "=$session" 2>/dev/null; do
           trip_breaker
           break 2
         fi
-        nudge "$agent" "$f"
+        nudge "$agent" "$f" || continue
         echo "$f" >> "$notified"
         date +%s >> "$nudge_log"
       done

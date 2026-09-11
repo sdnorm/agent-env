@@ -62,6 +62,35 @@ table above.
 ```sh
 wt my-branch          # create branch/worktree + tmux session, attach
 wt done [my-branch]   # kill session, remove worktree (keeps branch; --force if dirty)
+wt herdr [agent...]   # inside a herdr worktree: same mailbox, agents as herdr tabs
+```
+
+### Inside herdr
+
+When the worktree was created by [herdr](https://herdr.dev) (it lives under
+`~/.herdr/worktrees/<repo>/<branch>` and the shell has `HERDR_ENV=1`), skip
+tmux entirely. From claude's pane in that worktree:
+
+```sh
+wt herdr              # every auto-mode roster agent (pi, grok) in its own tab
+wt herdr pi codex     # exactly these — demand agents like codex included
+```
+
+It links the same `~/.agents-mail/<repo>--<branch>` mailbox in as `.agent-mail`,
+writes `AGENTS.md`, installs the push guard, opens one herdr tab per agent with
+`AGENT_MAIL_FROM` set, records herdr pane IDs in `panes`, and starts the
+watcher in herdr mode (nudges go through `herdr agent prompt`). Re-running it
+is safe: agents already up are skipped, a tab whose agent exited is relaunched.
+`agent-mail spawn <name>` works the same way and just calls `wt herdr <name>`.
+Finish with herdr's own worktree removal; mail history stays put like `wt done`.
+
+Codex's sandbox can't write outside the worktree, and the mailbox symlink
+resolves into `~/.agents-mail`, so add it as a writable root once in
+`~/.codex/config.toml`:
+
+```toml
+[sandbox_workspace_write]
+writable_roots = ["/Users/you/.agents-mail"]
 ```
 
 Two layouts, chosen with `WT_LAYOUT` (env or `.wt-config`):
